@@ -1,4 +1,3 @@
-
 package com.kkek.assistant.input
 
 import android.os.Handler
@@ -29,11 +28,17 @@ object VolumeKeyListener {
     private val handler = Handler(Looper.getMainLooper())
     private var isVolumeUpLongPress = false
     private var isVolumeDownLongPress = false
+    // When a long-press action executes it may arrive before the physical key-up event.
+    // Record which key's up event should be ignored so we don't trigger a short-press
+    // action for the same physical press.
+    private var ignoredUpKey: Int? = null
     private const val LONG_PRESS_DURATION = 500L // ms
     private var callState: CallState = CallState.IDLE
 
     private val volumeUpLongPressRunnable = Runnable {
         isVolumeUpLongPress = true
+        // Mark that the next VOLUME_UP key-up should be ignored (consumed) because this was a long-press
+        ignoredUpKey = KeyEvent.KEYCODE_VOLUME_UP
         if (callState == CallState.ACTIVE) {
             listener?.onToggleSpeakerLongPress()
         } else {
@@ -43,6 +48,8 @@ object VolumeKeyListener {
 
     private val volumeDownLongPressRunnable = Runnable {
         isVolumeDownLongPress = true
+        // Mark that the next VOLUME_DOWN key-up should be ignored (consumed) because this was a long-press
+        ignoredUpKey = KeyEvent.KEYCODE_VOLUME_DOWN
         if (callState == CallState.ACTIVE) {
             listener?.onEndCallLongPress()
         } else {
@@ -96,6 +103,12 @@ object VolumeKeyListener {
         when (keyCode) {
             KeyEvent.KEYCODE_VOLUME_UP -> {
                 handler.removeCallbacks(volumeUpLongPressRunnable)
+                // If a long-press was processed for this key, consume the following key-up and do nothing
+                if (ignoredUpKey == KeyEvent.KEYCODE_VOLUME_UP) {
+                    ignoredUpKey = null
+                    isVolumeUpLongPress = false
+                    return true
+                }
                 if (!isVolumeUpLongPress) {
                     when (callState) {
                         CallState.IDLE -> listener?.onPrevious()
@@ -108,6 +121,12 @@ object VolumeKeyListener {
             }
             KeyEvent.KEYCODE_VOLUME_DOWN -> {
                 handler.removeCallbacks(volumeDownLongPressRunnable)
+                // If a long-press was processed for this key, consume the following key-up and do nothing
+                if (ignoredUpKey == KeyEvent.KEYCODE_VOLUME_DOWN) {
+                    ignoredUpKey = null
+                    isVolumeDownLongPress = false
+                    return true
+                }
                 if (!isVolumeDownLongPress) {
                     when (callState) {
                         CallState.IDLE -> listener?.onNext()
@@ -126,5 +145,8 @@ object VolumeKeyListener {
         handler.removeCallbacksAndMessages(null)
         isVolumeUpLongPress = false
         isVolumeDownLongPress = false
+        // Do NOT clear ignoredUpKey here — if a long-press action already fired we want to
+        // consume the upcoming key-up event. reset() is often called by UI code immediately
+        // after opening sublists, so keep the consume behavior intact.
     }
 }
