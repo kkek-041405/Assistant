@@ -4,6 +4,9 @@ import android.app.Application
 import android.app.NotificationManager
 import android.app.role.RoleManager
 import android.content.Context
+import android.content.Intent
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.telecom.Call
 import android.util.Log
@@ -15,17 +18,20 @@ import com.kkek.assistant.input.CallState
 import com.kkek.assistant.input.VolumeKeyListener
 import com.kkek.assistant.model.CallDetails
 import com.kkek.assistant.model.ListItem
-import com.kkek.assistant.notification.NotificationHelper as NotificationHelperNew
-import com.kkek.assistant.contacts.ContactHelper as ContactsHelperNew
+import com.kkek.assistant.model.Actions
 import com.kkek.assistant.tts.TTSHelper as TTSHelperNew
 import com.kkek.assistant.telecom.CallHelper
 import com.kkek.assistant.telecom.CallService
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.kkek.assistant.model.Kind
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
+
+    // Trigger for activations
+    private enum class Trigger { SHORT, LONG, DOUBLE }
 
     // UI state exposed to Compose
     var message by mutableStateOf("")
@@ -42,27 +48,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var inSublist by mutableStateOf(false)
         private set
 
+    var permissionRequest by mutableStateOf<Intent?>(null)
+        private set
+
     // In-app custom contacts (used instead of querying device contacts)
+    private  val callItems: List<ListItem> = listOf(
+        ListItem(kind = Kind.SIMPLE, text = "Hang up/Toggle Speaker", longNext = Actions.HANGUP, longPrevious = Actions.TOGGLE_SPEAKER),
+        ListItem(kind = Kind.TOGGLE, text = "Speaker", isOn = false),
+        ListItem(kind = Kind.TOGGLE, text = "Mute", isOn = false)
+    )
     private val appContacts = listOf(
-        ListItem.ContactItem("Dad", "+919391632589"),
-        ListItem.ContactItem("MoM", "+916301638687"),
-        ListItem.ContactItem("Charlie", "+10000000003")
+        ListItem(kind = Kind.CONTACT, name = "Dad", phoneNumber = "+919391632589", longNext = Actions.CALL_CONTACT),
+        ListItem(kind = Kind.CONTACT, name = "MoM", phoneNumber = "+916301638687", longNext = Actions.CALL_CONTACT),
+        ListItem(kind = Kind.CONTACT, name = "Charlie", phoneNumber = "+10000000003", longNext = Actions.CALL_CONTACT)
     )
 
     private val defaultItems: List<ListItem> = listOf(
-        ListItem.SimpleItem("Tell time"),
-        ListItem.ToggleItem("Item #2 (Toggle)"),
-        ListItem.SublistItem("Make call", appContacts.map { it as ListItem }),
-        ListItem.SublistItem(
-            "Item #3",
-            listOf(
-                ListItem.SimpleItem("Sub-item #3.1"),
-                ListItem.SimpleItem("Sub-item #3.2"),
-                ListItem.SimpleItem("Sub-item #3.3")
-            )
-        ),
-        ListItem.SimpleItem("Item #4"),
-        ListItem.SimpleItem("Item #5")
+        // Use Actions IDs for behavior; default to long-press -> speak status
+        // preserve previous single-action behavior by assigning both Next and Previous to the same action
+        ListItem(kind = Kind.SIMPLE, text = "Tell time", longNext = Actions.TELL_TIME, longPrevious = Actions.TELL_TIME, doubleNext = Actions.READ_SELECTION),
+        ListItem(kind = Kind.SUBLIST, text = "Make call", sublist = appContacts, longNext = Actions.OPEN_SUBLIST),
+        ListItem(kind = Kind.SIMPLE, text = "Summarize Notifications", longNext = Actions.SUMMARIZE_NOTIFICATIONS, doubleNext = Actions.READ_SELECTION)
     )
 
     var currentList by mutableStateOf<List<ListItem>>(defaultItems)
@@ -84,6 +90,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         checkFullScreenIntentPermission()
         updateDialerRoleState()
         if (!isDefaultDialer) showDialerPrompt = true
+    }
+
+    fun onPermissionRequestHandled() {
+        permissionRequest = null
     }
 
     fun updateDialerRoleState() {
@@ -129,8 +139,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val callerNumber = call.details.handle?.schemeSpecificPart
                 callDetails = CallDetails(callerName, callerNumber)
                 currentList = listOf(
-                    ListItem.SimpleItem("Answer"),
-                    ListItem.SimpleItem("Reject")
+                    // Assign both Next and Previous to preserve previous single-action semantics
+                    ListItem(kind = Kind.SIMPLE, text = "Answer/Reject", shortNext = Actions.ANSWER_CALL, shortPrevious = Actions.REJECT_CALL),
                 )
             }
             Call.STATE_ACTIVE, Call.STATE_DIALING, Call.STATE_CONNECTING -> {
@@ -141,9 +151,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val callerNumber = call.details.handle?.schemeSpecificPart
                 callDetails = CallDetails(callerName, callerNumber)
                 currentList = listOf(
-                    ListItem.SimpleItem("Hang up"),
-                    ListItem.ToggleItem("Speaker", speakerOn),
-                    ListItem.ToggleItem("Mute", muted)
+                    ListItem(kind = Kind.SIMPLE, text = "Hang up", shortNext = Actions.HANGUP, shortPrevious = Actions.HANGUP),
+                    ListItem(kind = Kind.TOGGLE, text = "Speaker", isOn = speakerOn),
+                    ListItem(kind = Kind.TOGGLE, text = "Mute", isOn = muted)
                 )
             }
             else -> {
@@ -157,105 +167,180 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onNext() {
-        if (currentList.isNotEmpty()) {
-            selectedIndex = (selectedIndex + 1) % currentList.size
-            val item = currentList.getOrNull(selectedIndex)
-            Log.d(TAG, "onNext -> index=$selectedIndex item=${item?.let { it::class.simpleName }}")
-            updateMessage("Selected: ${when (item) {
-                is ListItem.SimpleItem -> item.text
-                is ListItem.ToggleItem -> item.text
-                is ListItem.ContactItem -> item.name
-                is ListItem.SublistItem -> item.text
-                else -> "Unknown"
-            }}")
-        }
+        val selectedItem = currentList.get(selectedIndex)
+        activateItem(selectedItem, selectedIndex, selectedItem.shortNext?: Actions.NEXT)
     }
 
     fun onPrevious() {
-        if (currentList.isNotEmpty()) {
-            selectedIndex = if (selectedIndex > 0) selectedIndex - 1 else currentList.size - 1
-            val item = currentList.getOrNull(selectedIndex)
-            Log.d(TAG, "onPrevious -> index=$selectedIndex item=${item?.let { it::class.simpleName }}")
-            updateMessage("Selected: ${when (item) {
-                is ListItem.SimpleItem -> item.text
-                is ListItem.ToggleItem -> item.text
-                is ListItem.ContactItem -> item.name
-                is ListItem.SublistItem -> item.text
-                else -> "Unknown"
-            }}")
-        }
+        val selectedItem = currentList.get(selectedIndex)
+        activateItem(selectedItem,selectedIndex, selectedItem.shortPrevious?: Actions.PREVIOUS)
     }
 
     fun onNextLongPress() {
-        if (currentList.isEmpty()) {
-            updateMessage("List empty")
-            return
-        }
-        val safeIndex = selectedIndex.coerceIn(0, currentList.size - 1)
-        if (safeIndex != selectedIndex) selectedIndex = safeIndex
-        val selectedItem = currentList.getOrNull(safeIndex) ?: run {
-            updateMessage("No item at $safeIndex")
-            return
-        }
-        Log.d(TAG, "onNextLongPress - index=$safeIndex item=${selectedItem::class.simpleName}")
-        updateMessage("Long-pressed: ${selectedItem::class.simpleName} at $safeIndex")
-        Log.d(TAG, "Opening item at $safeIndex: ${selectedItem}")
-        when (selectedItem) {
-            is ListItem.ContactItem -> {
-                callHelper?.placeCall(selectedItem.phoneNumber)
-                updateMessage("Calling ${selectedItem.name}")
-            }
-            is ListItem.SublistItem -> {
-                currentList = selectedItem.sublist
-                selectedIndex = 0
-                VolumeKeyListener.reset()
-                inSublist = true
-                updateMessage("Opened ${selectedItem.text}")
-            }
-            is ListItem.SimpleItem -> {
-                when (selectedItem.text) {
-                    "Tell time" -> speakTime()
-                    "Answer" -> CallService.call.value?.answer(0)
-                    "Reject" -> CallService.call.value?.reject(false, "")
-                    "Hang up" -> CallService.call.value?.disconnect()
-                    else -> { }
-                }
-            }
-            is ListItem.ToggleItem -> {
-                when (selectedItem.text) {
-                    "Speaker" -> CallService.toggleSpeaker()
-                    "Mute" -> CallService.toggleMute()
-                    else -> {
-                        toggleItem(selectedIndex)
-                        val updated = currentList[selectedIndex] as ListItem.ToggleItem
-                        updateMessage("${updated.text} is now ${if (updated.isOn) "ON" else "OFF"}")
-                    }
-                }
-            }
-        }
+        if (currentList.isEmpty()) return
+        val selectedItem = currentList.get(selectedIndex)
+        // Execute long-press activation for the selected item (Next direction)
+        activateItem(selectedItem, selectedIndex, selectedItem.longNext)
     }
 
     fun onPreviousLongPress() {
-        if (currentList != defaultItems) {
-            currentList = defaultItems
-            selectedIndex = 0
-            inSublist = false
-            updateMessage("")
-        } else {
-            updateMessage("")
+        val selectedItem = currentList.get(selectedIndex)
+        activateItem(selectedItem, selectedIndex, selectedItem.longPrevious?:Actions.CLOSE_SUBLIST)
+    }
+
+    fun onNextDoublePress() {
+        val selectedItem = currentList.get(selectedIndex)
+        activateItem(selectedItem, selectedIndex, selectedItem.doubleNext)
+    }
+
+    fun onPreviousDoublePress() {
+        val selectedItem = currentList.get(selectedIndex)
+        activateItem(selectedItem, selectedIndex, selectedItem.doublePrevious)
+    }
+    // Shared activation helper used by different triggers
+    private fun activateItem(selectedItem: ListItem, index: Int, actionId: Actions?) {
+        if (actionId == null) {
+            updateMessage("No action assigned")
+            return
+        }
+        when (actionId) {
+            Actions.TELL_TIME -> speakStatus()
+            Actions.SUMMARIZE_NOTIFICATIONS -> {
+                ttsHelper.speak("Notification summary not available")
+                updateMessage("Summarize notifications (not implemented)")
+            }
+            Actions.ANSWER_CALL -> {
+                CallService.call.value?.answer(0)
+                currentList = callItems
+                selectedIndex = 0
+                inSublist = true
+                updateMessage("Call answered")
+            }
+            Actions.REJECT_CALL -> {
+                CallService.call.value?.reject(false, "")
+                currentList = defaultItems
+                selectedIndex = 0
+                inSublist = false
+                updateMessage("Call rejected")
+            }
+            Actions.HANGUP -> {
+                CallService.call.value?.disconnect()
+                currentList = defaultItems
+                selectedIndex = 0
+                inSublist = false
+                updateMessage("Call ended")
+            }
+            Actions.TOGGLE_SPEAKER -> {
+                CallService.toggleSpeaker()
+                updateMessage("Toggled speaker")
+            }
+            Actions.TOGGLE_MUTE -> {
+                CallService.toggleMute()
+                updateMessage("Toggled mute")
+            }
+            Actions.CALL_CONTACT -> {
+                val phoneNumber = selectedItem.phoneNumber
+                if (phoneNumber != null) {
+                    callHelper?.placeCall(phoneNumber)
+                    updateMessage("Calling ${selectedItem.name ?: phoneNumber}")
+                    currentList = callItems
+                    selectedIndex = 0
+                    inSublist = true
+                } else {
+                    updateMessage("No phone number for contact")
+                }
+            }
+            Actions.OPEN_SUBLIST -> {
+                // Open sublist if available
+                selectedItem.sublist?.let { sublist ->
+                    currentList = sublist
+                    selectedIndex = 0
+                    inSublist = true
+                    updateMessage("Opened sublist: ${selectedItem.text ?: "Unknown"}")
+                } ?: run {
+                    updateMessage("No sublist available for this item")
+                }
+            }
+            Actions.CLOSE_SUBLIST -> {
+                if (currentList != defaultItems) {
+                    currentList = defaultItems
+                    selectedIndex = 0
+                    inSublist = false
+                    updateMessage("")
+                } else {
+                    updateMessage("")
+                }
+            }
+            Actions.READ_SELECTION -> {
+                selectedItem.let {
+                    val textToSpeak = when (it.kind) {
+                        Kind.SIMPLE -> it.text
+                        Kind.TOGGLE -> it.text
+                        Kind.CONTACT -> it.name
+                        Kind.SUBLIST -> it.text
+                    }
+                    ttsHelper.speak(textToSpeak ?: "Unknown item")
+                    updateMessage("Spoken: ${textToSpeak ?: "Unknown item"}")
+                }
+            }
+
+            Actions.PREVIOUS -> {
+                if (currentList.isNotEmpty()) {
+                    selectedIndex = if (selectedIndex > 0) selectedIndex - 1 else selectedIndex
+                }
+            }
+
+            Actions.NEXT -> {
+                if (currentList.isNotEmpty()) {
+                    selectedIndex = if (selectedIndex < currentList.size - 1) selectedIndex + 1 else selectedIndex
+                }
+            }
         }
     }
 
-    private fun speakTime() {
+    fun speakStatus() {
+        Log.d("TTS", "Speaking Status")
+        // Format time
         val sdf = SimpleDateFormat("h:mm a", Locale.US)
         val currentTime = sdf.format(Date())
-        ttsHelper.speak("The time is $currentTime")
-        updateMessage("Telling time: $currentTime")
+
+        // Read battery percentage via BatteryManager first, then fallback to ACTION_BATTERY_CHANGED
+        var batteryPercent: Int? = null
+        try {
+            val app = getApplication<Application>()
+            val bm = app.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val cap = bm?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+            if (cap != null && cap != Int.MIN_VALUE && cap >= 0) {
+                batteryPercent = cap
+            } else {
+                val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+                val status = app.registerReceiver(null, ifilter)
+                status?.let { intent ->
+                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                    if (level >= 0 && scale > 0) {
+                        batteryPercent = (level * 100) / scale
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read battery in speakStatus", e)
+        }
+
+        // Compose speak text
+        val text = if (batteryPercent != null) {
+            "It's $currentTime with $batteryPercent percent"
+        } else {
+            "It's $currentTime. Battery percentage unknown"
+        }
+        ttsHelper.speak(text)
+        updateMessage("Spoken status: $currentTime${batteryPercent?.let { " with $it%" } ?: " (battery unknown)"}")
     }
 
     private fun toggleItem(index: Int) {
         val list = currentList.toMutableList()
-        val item = list.getOrNull(index) as? ListItem.ToggleItem ?: return
+        val item = list.getOrNull(index) ?: return
+        if (item.kind != Kind.TOGGLE) return
         list[index] = item.copy(isOn = !item.isOn)
         currentList = list
     }
@@ -266,6 +351,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun shutdown() {
         ttsHelper.shutdown()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        // ViewModel is being destroyed for good (not a config change) — clean up TTS
+        try {
+            ttsHelper.shutdown()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error shutting down TTS in onCleared", e)
+        }
+    }
+
+    // Expose TTS via ViewModel so Activities/fragments can request speech without creating their own TTS.
+    fun speak(text: String) {
+        ttsHelper.speak(text)
     }
 
     // Public helpers used by Activity

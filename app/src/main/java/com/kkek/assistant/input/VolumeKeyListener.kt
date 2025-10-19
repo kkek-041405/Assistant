@@ -1,8 +1,11 @@
 package com.kkek.assistant.input
 
+import android.annotation.SuppressLint
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
+import com.kkek.assistant.vibration.VibrationHelper
 
 /**
  * Volume input handling utilities.
@@ -20,6 +23,10 @@ interface VolumeCommandListener {
     fun onHangup()
     fun onEndCallLongPress()
     fun onToggleSpeakerLongPress()
+
+    // New double-press callbacks
+    fun onNextDoublePress()
+    fun onPreviousDoublePress()
 }
 
 object VolumeKeyListener {
@@ -34,11 +41,19 @@ object VolumeKeyListener {
     private var ignoredUpKey: Int? = null
     private const val LONG_PRESS_DURATION = 500L // ms
     private var callState: CallState = CallState.IDLE
+    @SuppressLint("StaticFieldLeak")
+    private var vibrationHelper: VibrationHelper? = null
+
+    // Double-press detection
+    private const val DOUBLE_PRESS_TIMEOUT = 300L // ms
+    private var lastVolumeUpPending = false
+    private var lastVolumeDownPending = false
 
     private val volumeUpLongPressRunnable = Runnable {
         isVolumeUpLongPress = true
         // Mark that the next VOLUME_UP key-up should be ignored (consumed) because this was a long-press
         ignoredUpKey = KeyEvent.KEYCODE_VOLUME_UP
+        vibrationHelper?.vibrateLongPress()
         if (callState == CallState.ACTIVE) {
             listener?.onToggleSpeakerLongPress()
         } else {
@@ -50,11 +65,50 @@ object VolumeKeyListener {
         isVolumeDownLongPress = true
         // Mark that the next VOLUME_DOWN key-up should be ignored (consumed) because this was a long-press
         ignoredUpKey = KeyEvent.KEYCODE_VOLUME_DOWN
+        vibrationHelper?.vibrateLongPress()
         if (callState == CallState.ACTIVE) {
             listener?.onEndCallLongPress()
         } else {
             listener?.onNextLongPress()
         }
+    }
+
+    // Single-press runnables scheduled to allow double-press detection
+    private val volumeUpSingleRunnable = Runnable {
+        // Execute single short-press action for VOLUME_UP
+        when (callState) {
+            CallState.IDLE -> {
+                vibrationHelper?.vibrateNavigation()
+                listener?.onPrevious()
+            }
+            CallState.INCOMING -> {
+                vibrationHelper?.vibrateAction()
+                listener?.onReject()
+            }
+            CallState.ACTIVE -> { /* Do nothing for short press */ }
+        }
+        lastVolumeUpPending = false
+    }
+
+    private val volumeDownSingleRunnable = Runnable {
+        // Execute single short-press action for VOLUME_DOWN
+        when (callState) {
+            CallState.IDLE -> {
+                vibrationHelper?.vibrateNavigation()
+                listener?.onNext()
+            }
+            CallState.INCOMING -> {
+                vibrationHelper?.vibrateAction()
+                listener?.onAnswer()
+            }
+            CallState.ACTIVE -> { /* Do nothing */ }
+        }
+        lastVolumeDownPending = false
+    }
+
+    fun init(context: Context) {
+        // Use applicationContext to avoid leaking an Activity context from the static object
+        vibrationHelper = VibrationHelper(context.applicationContext)
     }
 
     fun setListener(listener: VolumeCommandListener?) {
@@ -110,10 +164,16 @@ object VolumeKeyListener {
                     return true
                 }
                 if (!isVolumeUpLongPress) {
-                    when (callState) {
-                        CallState.IDLE -> listener?.onPrevious()
-                        CallState.INCOMING -> listener?.onReject()
-                        CallState.ACTIVE -> { /* Do nothing for short press */ }
+                    if (lastVolumeUpPending) {
+                        // Second press within timeout -> double-press
+                        handler.removeCallbacks(volumeUpSingleRunnable)
+                        vibrationHelper?.vibrateDoublePress()
+                        listener?.onPreviousDoublePress()
+                        lastVolumeUpPending = false
+                    } else {
+                        // First short press: schedule single action and wait for potential second press
+                        lastVolumeUpPending = true
+                        handler.postDelayed(volumeUpSingleRunnable, DOUBLE_PRESS_TIMEOUT)
                     }
                 }
                 isVolumeUpLongPress = false // Reset for next press
@@ -128,10 +188,16 @@ object VolumeKeyListener {
                     return true
                 }
                 if (!isVolumeDownLongPress) {
-                    when (callState) {
-                        CallState.IDLE -> listener?.onNext()
-                        CallState.INCOMING -> listener?.onAnswer()
-                        CallState.ACTIVE -> { /* Do nothing */ }
+                    if (lastVolumeDownPending) {
+                        // Second press within timeout -> double-press
+                        handler.removeCallbacks(volumeDownSingleRunnable)
+                        vibrationHelper?.vibrateDoublePress()
+                        listener?.onNextDoublePress()
+                        lastVolumeDownPending = false
+                    } else {
+                        // First short press: schedule single action and wait for potential second press
+                        lastVolumeDownPending = true
+                        handler.postDelayed(volumeDownSingleRunnable, DOUBLE_PRESS_TIMEOUT)
                     }
                 }
                 isVolumeDownLongPress = false // Reset for next press
@@ -145,6 +211,8 @@ object VolumeKeyListener {
         handler.removeCallbacksAndMessages(null)
         isVolumeUpLongPress = false
         isVolumeDownLongPress = false
+        lastVolumeUpPending = false
+        lastVolumeDownPending = false
         // Do NOT clear ignoredUpKey here — if a long-press action already fired we want to
         // consume the upcoming key-up event. reset() is often called by UI code immediately
         // after opening sublists, so keep the consume behavior intact.

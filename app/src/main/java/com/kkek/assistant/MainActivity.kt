@@ -26,8 +26,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
@@ -36,25 +38,25 @@ import com.kkek.assistant.ui.theme.AssistantTheme
 import com.kkek.assistant.input.VolumeKeyListener
 import com.kkek.assistant.input.VolumeCommandListener
 import com.kkek.assistant.telecom.CallService
+import android.content.Context
+import android.content.IntentFilter
+import android.os.BatteryManager
+import androidx.compose.runtime.mutableStateOf
+import com.kkek.assistant.model.Kind
+
 
 // Import moved model and input packages
 import com.kkek.assistant.model.ListItem
-import com.kkek.assistant.model.CallDetails
 
-/**
- * MainActivity: orchestrates UI and delegates responsibilities to helper classes.
- * Responsibilities delegated:
- *  - NotificationHelper: notification channel and full-screen notifications
- *  - CallHelper: Telecom phone account registration and placing calls
- *  - ContactHelper: fetching contacts from ContentResolver
- *  - TTSHelper: text-to-speech lifecycle and speaking
- */
 class MainActivity : ComponentActivity(), VolumeCommandListener {
 
     private val TAG = "MainActivity"
 
     // ViewModel
     private val viewModel: MainViewModel by viewModels()
+
+    // Battery percentage state (observed by Compose)
+    private var batteryPercent by mutableStateOf(-1)
 
     private val requestPermissionLauncher =
         registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
@@ -79,8 +81,9 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        VolumeKeyListener.init(this)
+
         // Delegate initialization checks to ViewModel
-        requestNotificationPermission()
         viewModel.checkFullScreenIntentPermission()
         viewModel.updateDialerRoleState()
 
@@ -96,6 +99,20 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                 val call by CallService.call.collectAsState()
                 val speakerOn by CallService.speakerOn.collectAsState()
                 val muted by CallService.muted.collectAsState()
+
+                // Handle permission requests from the ViewModel
+                val permissionRequest = viewModel.permissionRequest
+                LaunchedEffect(permissionRequest) {
+                    permissionRequest?.let {
+                        try {
+                            startActivity(it)
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Could not launch settings intent", e)
+                        } finally {
+                            viewModel.onPermissionRequestHandled()
+                        }
+                    }
+                }
 
                 // Compose AlertDialog shown on app open when the app is not default dialer
                 if (viewModel.showDialerPrompt) {
@@ -140,15 +157,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                         if (viewModel.message.isNotEmpty()) {
                             Text(text = viewModel.message, modifier = Modifier.padding(16.dp))
                         }
-
-                        if (!viewModel.canScheduleFullScreenNotifications && Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                            Button(onClick = { openNotificationSettings() }) {
-                                Text("Grant Full-Screen Notification Permission")
-                            }
-                        }
-
-                        Button(onClick = { sendTestNotification() }) { Text("Test Full-Screen Notification") }
-
                     }
                 }
             }
@@ -179,23 +187,32 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         }
     }
 
-    private fun openNotificationSettings() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            val intent = Intent(Settings.ACTION_MANAGE_APP_USE_FULL_SCREEN_INTENT).apply { data = ("package:$packageName").toUri() }
-            startActivity(intent)
-        }
-    }
+    private fun updateBatteryPercentage() {
+        try {
+            val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val capacity = if (bm != null) {
+                // BATTERY_PROPERTY_CAPACITY returns battery level in percent on supported devices
+                val cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+                if (cap != Int.MIN_VALUE) cap else null
+            } else null
 
-    private fun sendTestNotification() {
-        // Intentionally left empty for now
-    }
-
-    private fun requestNotificationPermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                Log.d(TAG, "Requesting POST_NOTIFICATIONS permission.")
-                requestPermissionLauncher.launch(arrayOf(Manifest.permission.POST_NOTIFICATIONS))
+            if (capacity != null && capacity >= 0) {
+                batteryPercent = capacity
+                return
             }
+
+            // Fallback: query ACTION_BATTERY_CHANGED
+            val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            val batteryStatus = registerReceiver(null, ifilter)
+            batteryStatus?.let { intent ->
+                val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                if (level >= 0 && scale > 0) {
+                    batteryPercent = (level * 100) / scale
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to read battery percentage", e)
         }
     }
 
@@ -205,6 +222,8 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         VolumeKeyListener.reset()
         // Re-evaluate whether we are the default dialer each time the activity resumes
         viewModel.updateDialerRoleState()
+        // Refresh battery percentage when returning to the activity
+        updateBatteryPercentage()
     }
 
     override fun onPause() {
@@ -213,7 +232,9 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     }
 
     override fun onDestroy() {
-        viewModel.shutdown()
+        // Don't call viewModel.shutdown() here; Activity onDestroy is called on configuration changes
+        // and we want the ViewModel (and its TTS) to survive rotations. The ViewModel will clean up
+        // in onCleared() when it is actually destroyed.
         super.onDestroy()
     }
 
@@ -264,6 +285,17 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         viewModel.toggleSpeaker()
     }
 
+
+
+    // New double-press callbacks: map to same behavior as long-press handlers in ViewModel
+    override fun onNextDoublePress() {
+        viewModel.onNextDoublePress()
+    }
+
+    override fun onPreviousDoublePress() {
+        viewModel.onPreviousDoublePress()
+    }
+
     // Note: business logic (speakTime/toggleItem/message) moved to ViewModel
 }
 
@@ -275,11 +307,12 @@ fun ItemList(
 ) {
     LazyColumn(modifier = modifier) {
         itemsIndexed(items) { index, item ->
-            val text = when (item) {
-                is ListItem.SimpleItem -> item.text
-                is ListItem.SublistItem -> "${item.text} >"
-                is ListItem.ToggleItem -> "${item.text} [${if (item.isOn) "ON" else "OFF"}]"
-                is ListItem.ContactItem -> "${item.name}: ${item.phoneNumber}"
+            val text = when (item.kind) {
+                Kind.SIMPLE -> item.text ?: ""
+                Kind.SUBLIST -> "${item.text ?: ""} >"
+                Kind.TOGGLE -> "${item.text ?: ""} [${if (item.isOn) "ON" else "OFF"}]"
+                Kind.CONTACT -> "${item.name ?: ""}: ${item.phoneNumber ?: ""}"
+                else -> ""
             }
             Text(text = text, color = if (index == selectedIndex) Color.Red else Color.Unspecified)
         }
@@ -288,5 +321,5 @@ fun ItemList(
 
 @Composable
 fun ItemListPreview() {
-    AssistantTheme { ItemList(items = listOf(ListItem.SimpleItem("Item #1")), selectedIndex = 0) }
+    AssistantTheme { ItemList(items = listOf(ListItem(kind = Kind.SIMPLE, text = "Item #1")), selectedIndex = 0) }
 }
