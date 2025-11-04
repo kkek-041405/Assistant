@@ -81,6 +81,10 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        if (intent?.action == Intent.ACTION_ASSIST) {
+            Log.d(TAG, "MainActivity launched for ASSIST action")
+        }
+
         VolumeKeyListener.init(this)
 
         // Delegate initialization checks to ViewModel

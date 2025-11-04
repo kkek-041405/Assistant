@@ -60,7 +60,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val appContacts = listOf(
         ListItem(kind = Kind.CONTACT, name = "Dad", phoneNumber = "+919391632589", longNext = Actions.CALL_CONTACT),
         ListItem(kind = Kind.CONTACT, name = "MoM", phoneNumber = "+916301638687", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "Charlie", phoneNumber = "+10000000003", longNext = Actions.CALL_CONTACT)
+        ListItem(kind = Kind.CONTACT, name = "Sai Kiran", phoneNumber = "+917659835677", longNext = Actions.CALL_CONTACT),
+        ListItem(kind = Kind.CONTACT, name = "Revanth", phoneNumber = "+916302415703", longNext = Actions.CALL_CONTACT)
+
     )
 
     private val defaultItems: List<ListItem> = listOf(
