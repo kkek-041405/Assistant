@@ -61,7 +61,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         ListItem(kind = Kind.CONTACT, name = "Dad", phoneNumber = "+919391632589", longNext = Actions.CALL_CONTACT),
         ListItem(kind = Kind.CONTACT, name = "MoM", phoneNumber = "+916301638687", longNext = Actions.CALL_CONTACT),
         ListItem(kind = Kind.CONTACT, name = "Sai Kiran", phoneNumber = "+917659835677", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "Revanth", phoneNumber = "+916302415703", longNext = Actions.CALL_CONTACT)
+        ListItem(kind = Kind.CONTACT, name = "Lokesh", phoneNumber = "+919581227148", longNext = Actions.CALL_CONTACT),
+        ListItem(kind = Kind.CONTACT, name = "Jeevan", phoneNumber = "+918074490524", longNext = Actions.CALL_CONTACT),
+
+
+
+
+
 
     )
 
