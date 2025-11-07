@@ -26,6 +26,8 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import com.kkek.assistant.model.Kind
+import com.kkek.assistant.spotify.SpotifyHelper
+import com.kkek.assistant.spotify.TokenManager
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
@@ -71,11 +73,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     )
 
+    // Spotify sublist is computed on demand so the first item can be Login or Logout
+    private fun getSpotifySublist(): List<ListItem> {
+        val tm = TokenManager(getApplication())
+        val loggedIn = !tm.getAccessToken().isNullOrEmpty() || !tm.getRefreshToken().isNullOrEmpty()
+
+        val SpotifyItem : ListItem = if (loggedIn) {
+            // If logged in show Logout (Start_SPOTIFY will perform logout when logged in)
+            ListItem(kind = Kind.SIMPLE, text = "Play/Pause", longNext = Actions.SPOTIFY_NEXT, longPrevious = Actions.SPOTIFY_PREVIOUS, doubleNext = Actions.SPOTIFY_PLAY_PAUSE)
+        } else {
+            // If not logged in show Login (Start_SPOTIFY will start the login flow)
+            ListItem(kind = Kind.SIMPLE, text = "Login", longNext = Actions.Start_SPOTIFY)
+        }
+
+
+        return listOf(SpotifyItem)
+    }
+
     private val defaultItems: List<ListItem> = listOf(
         // Use Actions IDs for behavior; default to long-press -> speak status
         // preserve previous single-action behavior by assigning both Next and Previous to the same action
         ListItem(kind = Kind.SIMPLE, text = "Tell time", longNext = Actions.TELL_TIME, longPrevious = Actions.TELL_TIME, doubleNext = Actions.READ_SELECTION),
         ListItem(kind = Kind.SUBLIST, text = "Make call", sublist = appContacts, longNext = Actions.OPEN_SUBLIST),
+        // Make Spotify an entry that opens a dynamic sublist when requested
+        ListItem(kind = Kind.SUBLIST, text = "Spotify", sublist = null, longNext = Actions.OPEN_SUBLIST),
         ListItem(kind = Kind.SIMPLE, text = "Summarize Notifications", longNext = Actions.SUMMARIZE_NOTIFICATIONS, doubleNext = Actions.READ_SELECTION)
     )
 
@@ -259,14 +280,22 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             Actions.OPEN_SUBLIST -> {
-                // Open sublist if available
-                selectedItem.sublist?.let { sublist ->
-                    currentList = sublist
+                // Open sublist if available. For Spotify we generate it dynamically.
+                if (selectedItem.text == "Spotify") {
+                    currentList = getSpotifySublist()
                     selectedIndex = 0
                     inSublist = true
-                    updateMessage("Opened sublist: ${selectedItem.text ?: "Unknown"}")
-                } ?: run {
-                    updateMessage("No sublist available for this item")
+                    updateMessage("Opened Spotify controls")
+                } else {
+                    // Open sublist if provided on the ListItem
+                    selectedItem.sublist?.let { sublist ->
+                        currentList = sublist
+                        selectedIndex = 0
+                        inSublist = true
+                        updateMessage("Opened sublist: ${selectedItem.text ?: "Unknown"}")
+                    } ?: run {
+                        updateMessage("No sublist available for this item")
+                    }
                 }
             }
             Actions.CLOSE_SUBLIST -> {
@@ -302,6 +331,65 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 if (currentList.isNotEmpty()) {
                     selectedIndex = if (selectedIndex < currentList.size - 1) selectedIndex + 1 else selectedIndex
                 }
+            }
+
+            Actions.Start_SPOTIFY -> {
+                // This action is used by the Login/Logout item in the Spotify sublist.
+                try {
+                    val tm = TokenManager(getApplication())
+                    val access = tm.getAccessToken()
+                    val refresh = tm.getRefreshToken()
+
+                    val loggedIn = !access.isNullOrEmpty() || !refresh.isNullOrEmpty()
+
+                    if (loggedIn) {
+                        // Perform logout: clear stored tokens and update the sublist so the auth item becomes "Login"
+                        tm.clear()
+                        currentList = getSpotifySublist()
+                        selectedIndex = 0
+                        inSublist = true
+                        updateMessage("Logged out of Spotify")
+                    } else {
+                        // Not logged in: start the login flow
+                        SpotifyHelper.startLogin(getApplication())
+                        updateMessage("Opening Spotify login")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to handle Spotify start action", e)
+                    updateMessage("Spotify action failed")
+                }
+            }
+            Actions.SPOTIFY_PLAY_PAUSE -> {
+                try {
+                    SpotifyHelper.playPause(getApplication())
+                    updateMessage("Toggled Play/Pause")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to toggle play/pause", e)
+                    updateMessage("Play/Pause failed")
+                }
+            }
+            Actions.SPOTIFY_NEXT -> {
+
+                try {
+                    SpotifyHelper.next(getApplication())
+                    updateMessage("Skipping to next track")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to skip to next", e)
+                    updateMessage("Skip next failed")
+                }
+            }
+            Actions.SPOTIFY_PREVIOUS -> {
+                try {
+                    SpotifyHelper.previous(getApplication())
+                    updateMessage("Skipping to previous track")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to skip to previous", e)
+                    updateMessage("Skip previous failed")
+                }
+            }
+            else -> {
+                // Fallback for any action not explicitly handled
+                updateMessage("")
             }
         }
     }

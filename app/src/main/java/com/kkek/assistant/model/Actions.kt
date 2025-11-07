@@ -17,5 +17,9 @@ enum class Actions() {
     OPEN_SUBLIST,
     CLOSE_SUBLIST,
     PREVIOUS,
-    NEXT
+    NEXT,
+    Start_SPOTIFY,
+    SPOTIFY_PLAY_PAUSE,
+    SPOTIFY_NEXT,
+    SPOTIFY_PREVIOUS
 }

@@ -39,7 +39,8 @@
                 android:name=".MainActivity"
                 android:exported="true"
                 android:label="@string/app_name"
-                android:theme="@style/Theme.Assistant">
+                android:theme="@style/Theme.Assistant"
+                android:launchMode="singleTop">
                 <intent-filter>
                     <action android:name="android.intent.action.MAIN" />
                     <category android:name="android.intent.category.LAUNCHER" />
@@ -57,6 +58,13 @@
                 <intent-filter>
                     <action android:name="android.intent.action.ASSIST" />
                     <category android:name="android.intent.category.DEFAULT" />
+                </intent-filter>
+                <!-- Intent filter to receive Spotify auth redirect assistant://callback -->
+                <intent-filter>
+                    <action android:name="android.intent.action.VIEW" />
+                    <category android:name="android.intent.category.DEFAULT" />
+                    <category android:name="android.intent.category.BROWSABLE" />
+                    <data android:scheme="assistant" android:host="callback" />
                 </intent-filter>
             </activity>
 

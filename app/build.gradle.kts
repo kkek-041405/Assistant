@@ -62,4 +62,18 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+    //spotify libs
+    implementation("com.spotify.android:auth:1.2.5")
+    // Use local Spotify App Remote AAR bundled in app/libs (avoids needing to fetch from remote)
+    implementation(files("libs/spotify-app-remote-release-0.8.0.aar"))
+    // NOTE: The protocol classes may be missing from the AAR. If you see runtime warnings about
+    // missing com.spotify.protocol.types.* classes, place the spotify-protocol AAR/jar into
+    // app/libs (for example: spotify-protocol-1.3.0.aar) and add another implementation(files(...))
+    // here. Alternatively, add the Maven repository that hosts these artifacts if available.
+
+    // Encrypted storage for token persistence
+    implementation("androidx.security:security-crypto:1.1.0")
+
+
 }

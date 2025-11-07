@@ -1,13 +1,7 @@
 package com.kkek.assistant
 
-import android.Manifest
-import android.app.role.RoleManager
 import android.content.Intent
-import android.content.pm.PackageManager
-import androidx.core.net.toUri
-import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -15,15 +9,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
@@ -31,23 +23,25 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import com.kkek.assistant.ui.theme.AssistantTheme
 import com.kkek.assistant.input.VolumeKeyListener
 import com.kkek.assistant.input.VolumeCommandListener
 import com.kkek.assistant.telecom.CallService
-import android.content.Context
 import android.content.IntentFilter
 import android.os.BatteryManager
+import android.os.Build
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import com.kkek.assistant.model.Kind
-
-
-// Import moved model and input packages
 import com.kkek.assistant.model.ListItem
+import com.kkek.assistant.spotify.SpotifyHelper
 
+
+@Suppress("RedundantQualifierName", "unused")
 class MainActivity : ComponentActivity(), VolumeCommandListener {
 
     private val TAG = "MainActivity"
@@ -57,16 +51,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
 
     // Battery percentage state (observed by Compose)
     private var batteryPercent by mutableStateOf(-1)
-
-    private val requestPermissionLauncher =
-        registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            val allGranted = permissions.entries.all { it.value }
-            if (allGranted) {
-                viewModel.setUserMessage("Permissions granted")
-            } else {
-                viewModel.setUserMessage("Some permissions were not granted")
-            }
-        }
 
     private val requestRoleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -80,6 +64,7 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
 
         if (intent?.action == Intent.ACTION_ASSIST) {
             Log.d(TAG, "MainActivity launched for ASSIST action")
@@ -152,8 +137,10 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                         }
 
                         viewModel.callDetails?.let {
-                            Text(text = "Caller: ${it.callerName ?: "Unknown"}")
-                            Text(text = "Number: ${it.callerNumber ?: "Unknown"}")
+                            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
+                                Text(text = "Caller: ${it.callerName ?: "Unknown"}")
+                                Text(text = "Number: ${it.callerNumber ?: "Unknown"}")
+                            }
                         }
 
                         ItemList(items = viewModel.currentList, selectedIndex = viewModel.selectedIndex, modifier = Modifier.weight(1f))
@@ -168,32 +155,19 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     }
 
     private fun requestDialerRoleOrChangeDefault() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            requestDialerRole()
-        } else {
-            try {
-                val intent = Intent("android.telecom.action.CHANGE_DEFAULT_DIALER")
-                intent.putExtra("android.telecom.extra.CHANGE_DEFAULT_DIALER_PACKAGE_NAME", packageName)
-                startActivity(intent)
-            } catch (ignored: Exception) {
-                viewModel.setUserMessage("Unable to open change default dialer settings")
-            }
-        }
-    }
-
-    private fun requestDialerRole() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            val roleManager = getSystemService(ROLE_SERVICE) as RoleManager
-            if (!roleManager.isRoleHeld(RoleManager.ROLE_DIALER)) {
-                val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
-                requestRoleLauncher.launch(intent)
-            }
+        // Directly request the dialer role (minSdk >= 31 in this project)
+        try {
+            val intent = Intent("android.telecom.action.CHANGE_DEFAULT_DIALER")
+            intent.putExtra("android.telecom.extra.CHANGE_DEFAULT_DIALER_PACKAGE_NAME", packageName)
+            startActivity(intent)
+        } catch (_: Exception) {
+            viewModel.setUserMessage("Unable to open change default dialer settings")
         }
     }
 
     private fun updateBatteryPercentage() {
         try {
-            val bm = getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
+            val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
             val capacity = if (bm != null) {
                 // BATTERY_PROPERTY_CAPACITY returns battery level in percent on supported devices
                 val cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
