@@ -2,6 +2,8 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    kotlin("plugin.serialization") version "1.9.0"
+    id("com.google.gms.google-services")
 }
 
 android {
@@ -54,6 +56,11 @@ dependencies {
     // Coroutines Android
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
 
+    // Firebase
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.database.ktx)
+    implementation(libs.firebase.firestore.ktx)
+
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
@@ -62,6 +69,15 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
     debugImplementation(libs.androidx.compose.ui.tooling)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+
+
+
+
+    //convex database
+    implementation("dev.convex:android-convexmobile:0.4.1@aar") {
+        isTransitive = true
+    }
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
 
     //spotify libs
     implementation("com.spotify.android:auth:1.2.5")

@@ -1,5 +1,6 @@
 package com.kkek.assistant
 
+import android.app.role.RoleManager
 import android.content.Intent
 import android.os.Bundle
 import android.util.Log
@@ -38,7 +39,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.graphics.Color
 import com.kkek.assistant.model.Kind
 import com.kkek.assistant.model.ListItem
-import com.kkek.assistant.spotify.SpotifyHelper
+import android.provider.Settings
+import androidx.core.app.NotificationManagerCompat
 
 
 @Suppress("RedundantQualifierName", "unused")
@@ -47,10 +49,13 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     private val TAG = "MainActivity"
 
     // ViewModel
+
+
     private val viewModel: MainViewModel by viewModels()
 
-    // Battery percentage state (observed by Compose)
     private var batteryPercent by mutableStateOf(-1)
+
+    private var showNotificationListenerDialog by mutableStateOf(false)
 
     private val requestRoleLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == RESULT_OK) {
@@ -81,6 +86,10 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
             viewModel.showDialerPrompt = true
         }
 
+        if (!isNotificationServiceEnabled()) {
+            showNotificationListenerDialog = true
+        }
+
         enableEdgeToEdge()
 
         setContent {
@@ -88,6 +97,23 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                 val call by CallService.call.collectAsState()
                 val speakerOn by CallService.speakerOn.collectAsState()
                 val muted by CallService.muted.collectAsState()
+
+                if (showNotificationListenerDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showNotificationListenerDialog = false },
+                        title = { Text("Enable Notification Access") },
+                        text = { Text("To upload notification details, this app requires notification access. Please enable it in the settings.") },
+                        confirmButton = {
+                            TextButton(onClick = {
+                                showNotificationListenerDialog = false
+                                startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                            }) { Text("Open Settings") }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showNotificationListenerDialog = false }) { Text("Later") }
+                        }
+                    )
+                }
 
                 // Handle permission requests from the ViewModel
                 val permissionRequest = viewModel.permissionRequest
@@ -154,14 +180,23 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         }
     }
 
+    private fun isNotificationServiceEnabled(): Boolean {
+        return NotificationManagerCompat.getEnabledListenerPackages(this).contains(packageName)
+    }
+
     private fun requestDialerRoleOrChangeDefault() {
-        // Directly request the dialer role (minSdk >= 31 in this project)
-        try {
-            val intent = Intent("android.telecom.action.CHANGE_DEFAULT_DIALER")
-            intent.putExtra("android.telecom.extra.CHANGE_DEFAULT_DIALER_PACKAGE_NAME", packageName)
-            startActivity(intent)
-        } catch (_: Exception) {
-            viewModel.setUserMessage("Unable to open change default dialer settings")
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val roleManager = getSystemService(ROLE_SERVICE) as RoleManager
+            val intent = roleManager.createRequestRoleIntent(RoleManager.ROLE_DIALER)
+            requestRoleLauncher.launch(intent)
+        } else {
+            try {
+                val intent = Intent("android.telecom.action.CHANGE_DEFAULT_DIALER")
+                intent.putExtra("android.telecom.extra.CHANGE_DEFAULT_DIALER_PACKAGE_NAME", packageName)
+                startActivity(intent)
+            } catch (_: Exception) {
+                viewModel.setUserMessage("Unable to open change default dialer settings")
+            }
         }
     }
 
@@ -202,6 +237,9 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         viewModel.updateDialerRoleState()
         // Refresh battery percentage when returning to the activity
         updateBatteryPercentage()
+        if (!isNotificationServiceEnabled()) {
+            showNotificationListenerDialog = true
+        }
     }
 
     override fun onPause() {

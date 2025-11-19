@@ -22,10 +22,10 @@
             <InsightsFilterSettings>
               <option name="connection">
                 <ConnectionSetting>
-                  <option name="appId" value="PLACEHOLDER" />
-                  <option name="mobileSdkAppId" value="" />
-                  <option name="projectId" value="" />
-                  <option name="projectNumber" value="" />
+                  <option name="appId" value="com.kkek.assistant" />
+                  <option name="mobileSdkAppId" value="1:992298132814:android:9a28db23beb9385a5a6a1f" />
+                  <option name="projectId" value="kkek-041405" />
+                  <option name="projectNumber" value="992298132814" />
                 </ConnectionSetting>
               </option>
               <option name="signal" value="SIGNAL_UNSPECIFIED" />

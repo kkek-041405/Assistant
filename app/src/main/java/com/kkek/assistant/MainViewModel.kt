@@ -14,26 +14,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
-import com.kkek.assistant.input.CallState
-import com.kkek.assistant.input.VolumeKeyListener
-import com.kkek.assistant.model.CallDetails
-import com.kkek.assistant.model.ListItem
+import androidx.lifecycle.viewModelScope
 import com.kkek.assistant.model.Actions
-import com.kkek.assistant.tts.TTSHelper as TTSHelperNew
+import com.kkek.assistant.model.CallDetails
+import com.kkek.assistant.model.Kind
+import com.kkek.assistant.model.ListItem
+import com.kkek.assistant.spotify.SpotifyHelper
 import com.kkek.assistant.telecom.CallHelper
 import com.kkek.assistant.telecom.CallService
+import com.kkek.assistant.telecom.Contact
+import com.kkek.assistant.firebase.FirebaseRDHelper
+import com.kkek.assistant.input.CallState
+import com.kkek.assistant.input.VolumeKeyListener
+import com.kkek.assistant.tts.TTSHelper
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.kkek.assistant.model.Kind
-import com.kkek.assistant.spotify.SpotifyHelper
-import com.kkek.assistant.spotify.TokenManager
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val TAG = "MainViewModel"
-
-    // Trigger for activations
-    private enum class Trigger { SHORT, LONG, DOUBLE }
 
     // UI state exposed to Compose
     var message by mutableStateOf("")
@@ -45,6 +45,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isDefaultDialer by mutableStateOf(true)
         private set
 
+    var appContacts by mutableStateOf<List<ListItem>>(emptyList())
+        private set
+
     var showDialerPrompt by mutableStateOf(false)
 
     var inSublist by mutableStateOf(false)
@@ -54,51 +57,54 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         private set
 
     // In-app custom contacts (used instead of querying device contacts)
-    private  val callItems: List<ListItem> = listOf(
+    private val callItems: List<ListItem> = listOf(
         ListItem(kind = Kind.SIMPLE, text = "Hang up/Toggle Speaker", longNext = Actions.HANGUP, longPrevious = Actions.TOGGLE_SPEAKER),
         ListItem(kind = Kind.TOGGLE, text = "Speaker", isOn = false),
         ListItem(kind = Kind.TOGGLE, text = "Mute", isOn = false)
     )
-    private val appContacts = listOf(
-        ListItem(kind = Kind.CONTACT, name = "Dad", phoneNumber = "+919391632589", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "MoM", phoneNumber = "+916301638687", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "Sai Kiran", phoneNumber = "+917659835677", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "Lokesh", phoneNumber = "+919581227148", longNext = Actions.CALL_CONTACT),
-        ListItem(kind = Kind.CONTACT, name = "Jeevan", phoneNumber = "+918074490524", longNext = Actions.CALL_CONTACT),
 
-
-
-
-
-
-    )
-
-    // Spotify sublist is computed on demand so the first item can be Login or Logout
-    private fun getSpotifySublist(): List<ListItem> {
-        val tm = TokenManager(getApplication())
-        val loggedIn = !tm.getAccessToken().isNullOrEmpty() || !tm.getRefreshToken().isNullOrEmpty()
-
-        val SpotifyItem : ListItem = if (loggedIn) {
-            // If logged in show Logout (Start_SPOTIFY will perform logout when logged in)
-            ListItem(kind = Kind.SIMPLE, text = "Play/Pause", longNext = Actions.SPOTIFY_NEXT, longPrevious = Actions.SPOTIFY_PREVIOUS, doubleNext = Actions.SPOTIFY_PLAY_PAUSE)
-        } else {
-            // If not logged in show Login (Start_SPOTIFY will start the login flow)
-            ListItem(kind = Kind.SIMPLE, text = "Login", longNext = Actions.Start_SPOTIFY)
+    private suspend fun getContacts(): List<ListItem> {
+        val contact: List<Contact> = FirebaseRDHelper.getContacts()
+        Log.d("MainViewModel", "Fetched contacts: $contact")
+        return contact.map {
+            ListItem(kind = Kind.CONTACT, name = it.name, phoneNumber = it.phone, longNext = Actions.CALL_CONTACT)
         }
-
-
-        return listOf(SpotifyItem)
     }
 
-    private val defaultItems: List<ListItem> = listOf(
-        // Use Actions IDs for behavior; default to long-press -> speak status
-        // preserve previous single-action behavior by assigning both Next and Previous to the same action
-        ListItem(kind = Kind.SIMPLE, text = "Tell time", longNext = Actions.TELL_TIME, longPrevious = Actions.TELL_TIME, doubleNext = Actions.READ_SELECTION),
-        ListItem(kind = Kind.SUBLIST, text = "Make call", sublist = appContacts, longNext = Actions.OPEN_SUBLIST),
-        // Make Spotify an entry that opens a dynamic sublist when requested
-        ListItem(kind = Kind.SUBLIST, text = "Spotify", sublist = null, longNext = Actions.OPEN_SUBLIST),
-        ListItem(kind = Kind.SIMPLE, text = "Summarize Notifications", longNext = Actions.SUMMARIZE_NOTIFICATIONS, doubleNext = Actions.READ_SELECTION)
-    )
+    private fun getSpotifySublist(): List<ListItem> {
+        return listOf(
+            ListItem(
+                kind = Kind.SIMPLE,
+                text = "Play/Pause",
+                shortNext = Actions.SPOTIFY_NEXT,
+                shortPrevious = Actions.SPOTIFY_PREVIOUS,
+                longNext = Actions.SPOTIFY_SEEK_FORWARD,
+                longPrevious = Actions.SPOTIFY_SEEK_BACKWARD,
+                doubleNext = Actions.SPOTIFY_PLAY_PAUSE
+            )
+        )
+    }
+
+    private val spotifyPlayer: List<ListItem> = listOf(
+            ListItem(
+                kind = Kind.SIMPLE,
+                text = "Play/Pause",
+                shortNext = Actions.SPOTIFY_NEXT,
+                shortPrevious = Actions.SPOTIFY_PREVIOUS,
+                longNext = Actions.SPOTIFY_SEEK_FORWARD,
+                longPrevious = Actions.SPOTIFY_SEEK_BACKWARD,
+                doubleNext = Actions.SPOTIFY_PLAY_PAUSE,
+                doublePrevious = Actions.CLOSE_SUBLIST,
+            )
+        )
+
+    private val defaultItems: List<ListItem>
+        get() = listOf(
+            ListItem(kind = Kind.SIMPLE, text = "Tell time", longNext = Actions.TELL_TIME, longPrevious = Actions.TELL_TIME, doubleNext = Actions.READ_SELECTION),
+            ListItem(kind = Kind.SUBLIST, text = "Make call", sublist = appContacts, longNext = Actions.OPEN_SUBLIST),
+            ListItem(kind = Kind.SUBLIST, text = "Spotify", sublist = spotifyPlayer, longNext = Actions.OPEN_SUBLIST),
+            ListItem(kind = Kind.SIMPLE, text = "Summarize Notifications", longNext = Actions.SUMMARIZE_NOTIFICATIONS, doubleNext = Actions.READ_SELECTION)
+        )
 
     var currentList by mutableStateOf<List<ListItem>>(defaultItems)
         private set
@@ -109,12 +115,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var callDetails by mutableStateOf<CallDetails?>(null)
         private set
 
-    // Helpers
-    private val ttsHelper = TTSHelperNew(getApplication())
+    private val ttsHelper = TTSHelper(getApplication())
     private val callHelper: CallHelper? = CallHelper(getApplication())
 
     init {
-        // Initialize any VM-level state here
         currentList = defaultItems
         checkFullScreenIntentPermission()
         updateDialerRoleState()
@@ -149,7 +153,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun handleCallState(call: Call?, speakerOn: Boolean, muted: Boolean) {
-        // Guard nullable call first so we can safely access its properties
         if (call == null) {
             VolumeKeyListener.setCallState(CallState.IDLE)
             if (!inSublist) {
@@ -168,7 +171,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val callerNumber = call.details.handle?.schemeSpecificPart
                 callDetails = CallDetails(callerName, callerNumber)
                 currentList = listOf(
-                    // Assign both Next and Previous to preserve previous single-action semantics
                     ListItem(kind = Kind.SIMPLE, text = "Answer/Reject", shortNext = Actions.ANSWER_CALL, shortPrevious = Actions.REJECT_CALL),
                 )
             }
@@ -196,37 +198,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun onNext() {
-        val selectedItem = currentList.get(selectedIndex)
-        activateItem(selectedItem, selectedIndex, selectedItem.shortNext?: Actions.NEXT)
+        val selectedItem = currentList[selectedIndex]
+        activateItem(selectedItem, selectedIndex, selectedItem.shortNext ?: Actions.NEXT)
     }
 
     fun onPrevious() {
-        val selectedItem = currentList.get(selectedIndex)
-        activateItem(selectedItem,selectedIndex, selectedItem.shortPrevious?: Actions.PREVIOUS)
+        val selectedItem = currentList[selectedIndex]
+        activateItem(selectedItem, selectedIndex, selectedItem.shortPrevious ?: Actions.PREVIOUS)
     }
 
     fun onNextLongPress() {
         if (currentList.isEmpty()) return
-        val selectedItem = currentList.get(selectedIndex)
-        // Execute long-press activation for the selected item (Next direction)
+        val selectedItem = currentList[selectedIndex]
         activateItem(selectedItem, selectedIndex, selectedItem.longNext)
     }
 
     fun onPreviousLongPress() {
-        val selectedItem = currentList.get(selectedIndex)
-        activateItem(selectedItem, selectedIndex, selectedItem.longPrevious?:Actions.CLOSE_SUBLIST)
+        val selectedItem = currentList[selectedIndex]
+        activateItem(selectedItem, selectedIndex, selectedItem.longPrevious ?: Actions.CLOSE_SUBLIST)
     }
 
     fun onNextDoublePress() {
-        val selectedItem = currentList.get(selectedIndex)
+        val selectedItem = currentList[selectedIndex]
         activateItem(selectedItem, selectedIndex, selectedItem.doubleNext)
     }
 
     fun onPreviousDoublePress() {
-        val selectedItem = currentList.get(selectedIndex)
+        val selectedItem = currentList[selectedIndex]
         activateItem(selectedItem, selectedIndex, selectedItem.doublePrevious)
     }
-    // Shared activation helper used by different triggers
+
+
+
     private fun activateItem(selectedItem: ListItem, index: Int, actionId: Actions?) {
         if (actionId == null) {
             updateMessage("No action assigned")
@@ -280,22 +283,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             Actions.OPEN_SUBLIST -> {
-                // Open sublist if available. For Spotify we generate it dynamically.
                 if (selectedItem.text == "Spotify") {
                     currentList = getSpotifySublist()
                     selectedIndex = 0
                     inSublist = true
                     updateMessage("Opened Spotify controls")
+                } else if (selectedItem.text == "Make call") {
+                    viewModelScope.launch {
+                        updateMessage("Fetching contacts...")
+                        currentList = getContacts()
+                        selectedIndex = 0
+                        inSublist = true
+                        updateMessage("Opened contacts")
+                    }
                 } else {
-                    // Open sublist if provided on the ListItem
-                    selectedItem.sublist?.let { sublist ->
-                        currentList = sublist
+                    selectedItem.sublist?.let {
+                        currentList = it
                         selectedIndex = 0
                         inSublist = true
                         updateMessage("Opened sublist: ${selectedItem.text ?: "Unknown"}")
-                    } ?: run {
-                        updateMessage("No sublist available for this item")
-                    }
+                    } ?: updateMessage("No sublist available for this item")
                 }
             }
             Actions.CLOSE_SUBLIST -> {
@@ -303,8 +310,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     currentList = defaultItems
                     selectedIndex = 0
                     inSublist = false
-                    updateMessage("")
-                } else {
                     updateMessage("")
                 }
             }
@@ -320,43 +325,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     updateMessage("Spoken: ${textToSpeak ?: "Unknown item"}")
                 }
             }
-
             Actions.PREVIOUS -> {
                 if (currentList.isNotEmpty()) {
                     selectedIndex = if (selectedIndex > 0) selectedIndex - 1 else selectedIndex
                 }
             }
-
             Actions.NEXT -> {
                 if (currentList.isNotEmpty()) {
                     selectedIndex = if (selectedIndex < currentList.size - 1) selectedIndex + 1 else selectedIndex
-                }
-            }
-
-            Actions.Start_SPOTIFY -> {
-                // This action is used by the Login/Logout item in the Spotify sublist.
-                try {
-                    val tm = TokenManager(getApplication())
-                    val access = tm.getAccessToken()
-                    val refresh = tm.getRefreshToken()
-
-                    val loggedIn = !access.isNullOrEmpty() || !refresh.isNullOrEmpty()
-
-                    if (loggedIn) {
-                        // Perform logout: clear stored tokens and update the sublist so the auth item becomes "Login"
-                        tm.clear()
-                        currentList = getSpotifySublist()
-                        selectedIndex = 0
-                        inSublist = true
-                        updateMessage("Logged out of Spotify")
-                    } else {
-                        // Not logged in: start the login flow
-                        SpotifyHelper.startLogin(getApplication())
-                        updateMessage("Opening Spotify login")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Failed to handle Spotify start action", e)
-                    updateMessage("Spotify action failed")
                 }
             }
             Actions.SPOTIFY_PLAY_PAUSE -> {
@@ -369,7 +345,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
             Actions.SPOTIFY_NEXT -> {
-
                 try {
                     SpotifyHelper.next(getApplication())
                     updateMessage("Skipping to next track")
@@ -387,8 +362,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     updateMessage("Skip previous failed")
                 }
             }
+            Actions.SPOTIFY_SEEK_FORWARD -> {
+                try {
+                    SpotifyHelper.seekForward(getApplication())
+                    updateMessage("Seeked forward")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to seek forward", e)
+                    updateMessage("Seek forward failed")
+                }
+            }
+            Actions.SPOTIFY_SEEK_BACKWARD -> {
+                try {
+                    SpotifyHelper.seekBackward(getApplication())
+                    updateMessage("Seeked backward")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to seek backward", e)
+                    updateMessage("Seek backward failed")
+                }
+            }
             else -> {
-                // Fallback for any action not explicitly handled
                 updateMessage("")
             }
         }
@@ -396,11 +388,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun speakStatus() {
         Log.d("TTS", "Speaking Status")
-        // Format time
         val sdf = SimpleDateFormat("h:mm a", Locale.US)
         val currentTime = sdf.format(Date())
 
-        // Read battery percentage via BatteryManager first, then fallback to ACTION_BATTERY_CHANGED
         var batteryPercent: Int? = null
         try {
             val app = getApplication<Application>()
@@ -411,9 +401,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             } else {
                 val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
                 val status = app.registerReceiver(null, ifilter)
-                status?.let { intent ->
-                    val level = intent.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
-                    val scale = intent.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
+                status?.let {
+                    val level = it.getIntExtra(BatteryManager.EXTRA_LEVEL, -1)
+                    val scale = it.getIntExtra(BatteryManager.EXTRA_SCALE, -1)
                     if (level >= 0 && scale > 0) {
                         batteryPercent = (level * 100) / scale
                     }
@@ -423,7 +413,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             Log.w(TAG, "Failed to read battery in speakStatus", e)
         }
 
-        // Compose speak text
         val text = if (batteryPercent != null) {
             "It's $currentTime with $batteryPercent percent"
         } else {
@@ -433,38 +422,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         updateMessage("Spoken status: $currentTime${batteryPercent?.let { " with $it%" } ?: " (battery unknown)"}")
     }
 
-    private fun toggleItem(index: Int) {
-        val list = currentList.toMutableList()
-        val item = list.getOrNull(index) ?: return
-        if (item.kind != Kind.TOGGLE) return
-        list[index] = item.copy(isOn = !item.isOn)
-        currentList = list
-    }
-
     private fun updateMessage(newMessage: String) {
         message = newMessage
     }
 
     fun shutdown() {
         ttsHelper.shutdown()
+        SpotifyHelper.disconnect()
     }
 
     override fun onCleared() {
         super.onCleared()
-        // ViewModel is being destroyed for good (not a config change) — clean up TTS
         try {
             ttsHelper.shutdown()
+            SpotifyHelper.disconnect()
         } catch (e: Exception) {
-            Log.w(TAG, "Error shutting down TTS in onCleared", e)
+            Log.w(TAG, "Error in onCleared", e)
         }
     }
 
-    // Expose TTS via ViewModel so Activities/fragments can request speech without creating their own TTS.
     fun speak(text: String) {
         ttsHelper.speak(text)
     }
 
-    // Public helpers used by Activity
     fun setUserMessage(newMessage: String) {
         updateMessage(newMessage)
     }
