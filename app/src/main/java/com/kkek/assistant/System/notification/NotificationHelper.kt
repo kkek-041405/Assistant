@@ -1,5 +1,6 @@
-package com.kkek.assistant.notification
+package com.kkek.assistant.System.notification
 
+import android.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -32,7 +33,7 @@ class NotificationHelper(private val context: Context) {
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(text)
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setSmallIcon(R.drawable.ic_dialog_info)
             .build()
         notificationManager.notify(NOTIFICATION_ID, notification)
     }

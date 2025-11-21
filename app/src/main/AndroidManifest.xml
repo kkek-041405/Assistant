@@ -5,6 +5,7 @@
 
         <!-- Indicate telephony is optional so permission lint is satisfied -->
         <uses-feature android:name="android.hardware.telephony" android:required="false" />
+        <uses-feature android:name="android.hardware.bluetooth" android:required="false" />
 
         <!-- Core Calling Permissions -->
         <uses-permission android:name="android.permission.MANAGE_OWN_CALLS" />
@@ -27,6 +28,11 @@
         <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
         <uses-permission android:name="android.permission.VIBRATE" />
 
+        <!-- Bluetooth Permissions -->
+        <uses-permission android:name="android.permission.BLUETOOTH" />
+        <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" />
+        <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+        <uses-permission android:name="android.permission.BLUETOOTH_SCAN" />
 
     <queries>
         <package android:name="com.spotify.music" />
@@ -80,7 +86,7 @@
                 </intent-filter>
             </activity>
 
-            <service android:name=".telecom.CallService"
+            <service android:name=".modules.Phone"
                 android:permission="android.permission.BIND_INCALL_SERVICE"
                 android:exported="true">
                 <meta-data android:name="android.telecom.IN_CALL_SERVICE_UI" android:value="true" />
@@ -89,7 +95,7 @@
                 </intent-filter>
             </service>
 
-            <service android:name=".telecom.CallConnectionService"
+            <service android:name=".Phone.CallConnectionService"
                 android:permission="android.permission.BIND_TELECOM_CONNECTION_SERVICE"
                 android:exported="true">
                 <intent-filter>
@@ -98,7 +104,7 @@
             </service>
 
             <service
-                android:name=".notification.NotificationListener"
+                android:name=".System.notification.NotificationListener"
                 android:exported="true"
                 android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
                 <intent-filter>

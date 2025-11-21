@@ -1,8 +1,14 @@
 package com.kkek.assistant
 
+import android.Manifest
 import android.app.role.RoleManager
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageManager
+import android.os.BatteryManager
+import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
@@ -10,46 +16,39 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.setValue
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
-import com.kkek.assistant.ui.theme.AssistantTheme
-import com.kkek.assistant.input.VolumeKeyListener
-import com.kkek.assistant.input.VolumeCommandListener
-import com.kkek.assistant.telecom.CallService
-import android.content.IntentFilter
-import android.os.BatteryManager
-import android.os.Build
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.runtime.Composable
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
+import com.kkek.assistant.System.VolumeCommandListener
+import com.kkek.assistant.System.VolumeKeyListener
 import com.kkek.assistant.model.Kind
 import com.kkek.assistant.model.ListItem
-import android.provider.Settings
-import androidx.core.app.NotificationManagerCompat
+import com.kkek.assistant.modules.Phone
+import com.kkek.assistant.ui.theme.AssistantTheme
 
 
 @Suppress("RedundantQualifierName", "unused")
 class MainActivity : ComponentActivity(), VolumeCommandListener {
 
     private val TAG = "MainActivity"
-
-    // ViewModel
-
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -63,13 +62,23 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         } else {
             viewModel.setUserMessage("Dialer role not granted")
         }
-        // Re-evaluate dialer state after user action
         viewModel.updateDialerRoleState()
     }
 
+    private val requestBluetoothPermissionLauncher =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { permissions ->
+            val allPermissionsGranted = permissions.values.all { it }
+            if (allPermissionsGranted) {
+                viewModel.setUserMessage("Bluetooth permissions granted")
+            } else {
+                viewModel.setUserMessage("Some Bluetooth permissions were not granted")
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
 
         if (intent?.action == Intent.ACTION_ASSIST) {
             Log.d(TAG, "MainActivity launched for ASSIST action")
@@ -77,11 +86,11 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
 
         VolumeKeyListener.init(this)
 
-        // Delegate initialization checks to ViewModel
         viewModel.checkFullScreenIntentPermission()
         viewModel.updateDialerRoleState()
 
-        // Show prompt if not default dialer
+        requestBluetoothPermissions()
+
         if (!viewModel.isDefaultDialer) {
             viewModel.showDialerPrompt = true
         }
@@ -94,9 +103,9 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
 
         setContent {
             AssistantTheme {
-                val call by CallService.call.collectAsState()
-                val speakerOn by CallService.speakerOn.collectAsState()
-                val muted by CallService.muted.collectAsState()
+                val call by Phone.call.collectAsState()
+                val speakerOn by Phone.speakerOn.collectAsState()
+                val muted by Phone.muted.collectAsState()
 
                 if (showNotificationListenerDialog) {
                     AlertDialog(
@@ -115,7 +124,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                     )
                 }
 
-                // Handle permission requests from the ViewModel
                 val permissionRequest = viewModel.permissionRequest
                 LaunchedEffect(permissionRequest) {
                     permissionRequest?.let {
@@ -129,7 +137,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                     }
                 }
 
-                // Compose AlertDialog shown on app open when the app is not default dialer
                 if (viewModel.showDialerPrompt) {
                     AlertDialog(
                         onDismissRequest = { viewModel.showDialerPrompt = false },
@@ -150,14 +157,12 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                 Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
 
-                        // If not default dialer, show a button so user can set it manually
                         if (!viewModel.isDefaultDialer) {
                             Button(onClick = { requestDialerRoleOrChangeDefault() }, modifier = Modifier.padding(16.dp)) {
                                 Text("Set as Default Dialer")
                             }
                         }
 
-                        // Let ViewModel update its state based on current call
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             viewModel.handleCallState(call, speakerOn, muted)
                         }
@@ -200,11 +205,32 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         }
     }
 
+    private fun requestBluetoothPermissions() {
+        val permissionsToRequest = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            arrayOf(
+                Manifest.permission.BLUETOOTH_SCAN,
+                Manifest.permission.BLUETOOTH_CONNECT
+            )
+        } else {
+            arrayOf(
+                Manifest.permission.BLUETOOTH,
+                Manifest.permission.BLUETOOTH_ADMIN
+            )
+        }
+
+        val permissionsNotGranted = permissionsToRequest.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+
+        if (permissionsNotGranted.isNotEmpty()) {
+            requestBluetoothPermissionLauncher.launch(permissionsNotGranted.toTypedArray())
+        }
+    }
+
     private fun updateBatteryPercentage() {
         try {
             val bm = getSystemService(BATTERY_SERVICE) as? BatteryManager
             val capacity = if (bm != null) {
-                // BATTERY_PROPERTY_CAPACITY returns battery level in percent on supported devices
                 val cap = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
                 if (cap != Int.MIN_VALUE) cap else null
             } else null
@@ -214,7 +240,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                 return
             }
 
-            // Fallback: query ACTION_BATTERY_CHANGED
             val ifilter = IntentFilter(Intent.ACTION_BATTERY_CHANGED)
             val batteryStatus = registerReceiver(null, ifilter)
             batteryStatus?.let { intent ->
@@ -233,9 +258,7 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         super.onResume()
         VolumeKeyListener.setListener(this)
         VolumeKeyListener.reset()
-        // Re-evaluate whether we are the default dialer each time the activity resumes
         viewModel.updateDialerRoleState()
-        // Refresh battery percentage when returning to the activity
         updateBatteryPercentage()
         if (!isNotificationServiceEnabled()) {
             showNotificationListenerDialog = true
@@ -248,9 +271,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     }
 
     override fun onDestroy() {
-        // Don't call viewModel.shutdown() here; Activity onDestroy is called on configuration changes
-        // and we want the ViewModel (and its TTS) to survive rotations. The ViewModel will clean up
-        // in onCleared() when it is actually destroyed.
         super.onDestroy()
     }
 
@@ -264,7 +284,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         return super.onKeyUp(keyCode, event)
     }
 
-    // VolumeCommandListener implementations
     override fun onNext() {
         viewModel.onNext()
     }
@@ -281,29 +300,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         viewModel.onPreviousLongPress()
     }
 
-    override fun onAnswer() {
-        viewModel.answerCall()
-    }
-
-    override fun onReject() {
-        viewModel.rejectCall()
-    }
-
-    override fun onHangup() {
-        viewModel.hangupCall()
-    }
-
-    override fun onEndCallLongPress() {
-        onHangup()
-    }
-
-    override fun onToggleSpeakerLongPress() {
-        viewModel.toggleSpeaker()
-    }
-
-
-
-    // New double-press callbacks: map to same behavior as long-press handlers in ViewModel
     override fun onNextDoublePress() {
         viewModel.onNextDoublePress()
     }
@@ -311,8 +307,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
     override fun onPreviousDoublePress() {
         viewModel.onPreviousDoublePress()
     }
-
-    // Note: business logic (speakTime/toggleItem/message) moved to ViewModel
 }
 
 @Composable
@@ -333,9 +327,4 @@ fun ItemList(
             Text(text = text, color = if (index == selectedIndex) Color.Red else Color.Unspecified)
         }
     }
-}
-
-@Composable
-fun ItemListPreview() {
-    AssistantTheme { ItemList(items = listOf(ListItem(kind = Kind.SIMPLE, text = "Item #1")), selectedIndex = 0) }
 }

@@ -1,4 +1,4 @@
-package com.kkek.assistant.notification
+package com.kkek.assistant.System.notification
 
 data class Notification(
     val id: String,

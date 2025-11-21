@@ -1,4 +1,4 @@
-package com.kkek.assistant.notification
+package com.kkek.assistant.System.notification
 
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification

@@ -1,11 +1,10 @@
-package com.kkek.assistant.input
+package com.kkek.assistant.System
 
 import android.annotation.SuppressLint
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import com.kkek.assistant.vibration.VibrationHelper
 
 /**
  * Volume input handling utilities.
@@ -18,13 +17,6 @@ interface VolumeCommandListener {
     fun onPrevious()
     fun onNextLongPress()
     fun onPreviousLongPress()
-    fun onAnswer()
-    fun onReject()
-    fun onHangup()
-    fun onEndCallLongPress()
-    fun onToggleSpeakerLongPress()
-
-    // New double-press callbacks
     fun onNextDoublePress()
     fun onPreviousDoublePress()
 }
@@ -40,7 +32,6 @@ object VolumeKeyListener {
     // action for the same physical press.
     private var ignoredUpKey: Int? = null
     private const val LONG_PRESS_DURATION = 500L // ms
-    private var callState: CallState = CallState.IDLE
     @SuppressLint("StaticFieldLeak")
     private var vibrationHelper: VibrationHelper? = null
 
@@ -54,11 +45,7 @@ object VolumeKeyListener {
         // Mark that the next VOLUME_UP key-up should be ignored (consumed) because this was a long-press
         ignoredUpKey = KeyEvent.KEYCODE_VOLUME_UP
         vibrationHelper?.vibrateLongPress()
-        if (callState == CallState.ACTIVE) {
-            listener?.onToggleSpeakerLongPress()
-        } else {
-            listener?.onPreviousLongPress()
-        }
+        listener?.onPreviousLongPress()
     }
 
     private val volumeDownLongPressRunnable = Runnable {
@@ -66,43 +53,21 @@ object VolumeKeyListener {
         // Mark that the next VOLUME_DOWN key-up should be ignored (consumed) because this was a long-press
         ignoredUpKey = KeyEvent.KEYCODE_VOLUME_DOWN
         vibrationHelper?.vibrateLongPress()
-        if (callState == CallState.ACTIVE) {
-            listener?.onEndCallLongPress()
-        } else {
-            listener?.onNextLongPress()
-        }
+        listener?.onNextLongPress()
     }
 
     // Single-press runnables scheduled to allow double-press detection
     private val volumeUpSingleRunnable = Runnable {
         // Execute single short-press action for VOLUME_UP
-        when (callState) {
-            CallState.IDLE -> {
-                vibrationHelper?.vibrateNavigation()
-                listener?.onPrevious()
-            }
-            CallState.INCOMING -> {
-                vibrationHelper?.vibrateAction()
-                listener?.onReject()
-            }
-            CallState.ACTIVE -> { /* Do nothing for short press */ }
-        }
+        listener?.onPrevious()
+        vibrationHelper?.vibrateNavigation()
         lastVolumeUpPending = false
     }
 
     private val volumeDownSingleRunnable = Runnable {
-        // Execute single short-press action for VOLUME_DOWN
-        when (callState) {
-            CallState.IDLE -> {
-                vibrationHelper?.vibrateNavigation()
-                listener?.onNext()
-            }
-            CallState.INCOMING -> {
-                vibrationHelper?.vibrateAction()
-                listener?.onAnswer()
-            }
-            CallState.ACTIVE -> { /* Do nothing */ }
-        }
+        listener?.onNext()
+        vibrationHelper?.vibrateNavigation()
+
         lastVolumeDownPending = false
     }
 
@@ -113,15 +78,6 @@ object VolumeKeyListener {
 
     fun setListener(listener: VolumeCommandListener?) {
         this.listener = listener
-    }
-
-    fun setCallState(state: CallState) {
-        callState = state
-        // When the call state changes, reset any pending long-press actions
-        // to avoid unintended navigation.
-        if (state != CallState.IDLE) {
-            reset()
-        }
     }
 
     fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {

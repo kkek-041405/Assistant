@@ -1,4 +1,4 @@
-package com.kkek.assistant.vibration
+package com.kkek.assistant.System
 
 import android.content.Context
 import android.os.Build

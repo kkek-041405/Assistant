@@ -18,12 +18,14 @@ data class ListItem(
     val sublist: List<ListItem>? = null,
     // Toggle state
     val isOn: Boolean = false,
+    // App to launch
+    val packageName: String? = null,
 
     // Directional actions for simple items (Next / Previous)
-    val shortNext: Actions? = null,
-    val shortPrevious: Actions? = null,
-    val longNext: Actions? = null,
-    val longPrevious: Actions? = null,
-    val doubleNext: Actions? = null,
-    val doublePrevious: Actions? = null
+    val shortNext: List<Actions> = emptyList(),
+    val shortPrevious: List<Actions> = emptyList(),
+    val longNext: List<Actions> = emptyList(),
+    val longPrevious: List<Actions> = emptyList(),
+    val doubleNext: List<Actions> = emptyList(),
+    val doublePrevious: List<Actions> = emptyList()
 )

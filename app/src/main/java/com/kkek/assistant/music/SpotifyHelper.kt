@@ -1,7 +1,9 @@
-package com.kkek.assistant.spotify
+package com.kkek.assistant.music
 
 import android.content.Context
 import android.util.Log
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
 import com.spotify.android.appremote.api.ConnectionParams
 import com.spotify.android.appremote.api.Connector
 import com.spotify.android.appremote.api.SpotifyAppRemote
@@ -19,6 +21,9 @@ class SpotifyHelper {
         private const val TAG = "SpotifyHelper"
 
         private val appRemoteRef = AtomicReference<SpotifyAppRemote?>(null)
+        private val _isConnected = mutableStateOf(false)
+        val isConnected: State<Boolean> = _isConnected
+
 
         fun playPause(context: Context) {
             connectAppRemote(context) { appRemote ->
@@ -60,12 +65,14 @@ class SpotifyHelper {
             appRemoteRef.get()?.let {
                 SpotifyAppRemote.disconnect(it)
                 appRemoteRef.set(null)
+                _isConnected.value = false
             }
         }
 
         private fun connectAppRemote(context: Context, onConnected: ((SpotifyAppRemote) -> Unit)? = null) {
             if (appRemoteRef.get()?.isConnected == true) {
                 onConnected?.invoke(appRemoteRef.get()!!)
+                _isConnected.value = true
                 return
             }
 
@@ -85,17 +92,22 @@ class SpotifyHelper {
 
 
                 withContext(Dispatchers.Main) {
-                    SpotifyAppRemote.connect(context, connectionParams, object : Connector.ConnectionListener {
-                        override fun onConnected(spotifyAppRemote: SpotifyAppRemote) {
-                            appRemoteRef.set(spotifyAppRemote)
-                            Log.d(TAG, "Spotify App Remote connected")
-                            onConnected?.invoke(spotifyAppRemote)
-                        }
+                    SpotifyAppRemote.connect(
+                        context,
+                        connectionParams,
+                        object : Connector.ConnectionListener {
+                            override fun onConnected(spotifyAppRemote: SpotifyAppRemote) {
+                                appRemoteRef.set(spotifyAppRemote)
+                                _isConnected.value = true
+                                Log.d(TAG, "Spotify App Remote connected")
+                                onConnected?.invoke(spotifyAppRemote)
+                            }
 
-                        override fun onFailure(throwable: Throwable) {
-                            Log.e(TAG, "Spotify App Remote connection failed", throwable)
-                        }
-                    })
+                            override fun onFailure(throwable: Throwable) {
+                                _isConnected.value = false
+                                Log.e(TAG, "Spotify App Remote connection failed", throwable)
+                            }
+                        })
                 }
             }
         }
