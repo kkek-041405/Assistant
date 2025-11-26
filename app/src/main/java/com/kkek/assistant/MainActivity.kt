@@ -18,6 +18,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -32,8 +33,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
@@ -42,6 +45,20 @@ import com.kkek.assistant.System.VolumeKeyListener
 import com.kkek.assistant.model.Kind
 import com.kkek.assistant.model.ListItem
 import com.kkek.assistant.modules.Phone
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.ElevatedCard
+import androidx.compose.material3.ExperimentalMaterial3Api
+
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.runtime.remember
 import com.kkek.assistant.ui.theme.AssistantTheme
 
 
@@ -101,6 +118,7 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
 
         enableEdgeToEdge()
 
+        @OptIn(ExperimentalMaterial3Api::class)
         setContent {
             AssistantTheme {
                 val call by Phone.call.collectAsState()
@@ -154,31 +172,65 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                     )
                 }
 
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
+                val snackbarHostState = remember { SnackbarHostState() }
 
-                        if (!viewModel.isDefaultDialer) {
-                            Button(onClick = { requestDialerRoleOrChangeDefault() }, modifier = Modifier.padding(16.dp)) {
-                                Text("Set as Default Dialer")
-                            }
-                        }
+                LaunchedEffect(viewModel.message) {
+                    if (viewModel.message.isNotEmpty()) {
+                        snackbarHostState.showSnackbar(viewModel.message)
+                        viewModel.setUserMessage("")
+                    }
+                }
+
+                Scaffold(
+                    modifier = Modifier.fillMaxSize(),
+                    topBar = {
+                        CenterAlignedTopAppBar(
+                            title = { Text("Assistant") }
+                        )
+                    },
+                    snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
+                ) { innerPadding ->
+                    Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
 
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                             viewModel.handleCallState(call, speakerOn, muted)
                         }
 
                         viewModel.callDetails?.let {
-                            Column(modifier = Modifier.padding(horizontal = 16.dp)) {
-                                Text(text = "Caller: ${it.callerName ?: "Unknown"}")
-                                Text(text = "Number: ${it.callerNumber ?: "Unknown"}")
+                            ElevatedCard(
+                                modifier = Modifier
+                                    .padding(16.dp)
+                                    .fillMaxWidth(),
+                                colors = CardDefaults.elevatedCardColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiaryContainer
+                                )
+                            ) {
+                                Column(modifier = Modifier.padding(16.dp)) {
+                                    Text(
+                                        text = "Active Call",
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = it.callerName ?: "Unknown",
+                                        style = MaterialTheme.typography.headlineSmall,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                    Text(
+                                        text = it.callerNumber ?: "Unknown",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                                    )
+                                }
                             }
                         }
 
-                        ItemList(items = viewModel.currentList, selectedIndex = viewModel.selectedIndex, modifier = Modifier.weight(1f))
-
-                        if (viewModel.message.isNotEmpty()) {
-                            Text(text = viewModel.message, modifier = Modifier.padding(16.dp))
-                        }
+                        ItemList(
+                            items = viewModel.currentList,
+                            selectedIndex = viewModel.selectedIndex,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -315,16 +367,69 @@ fun ItemList(
     selectedIndex: Int,
     modifier: Modifier = Modifier
 ) {
-    LazyColumn(modifier = modifier) {
+    LazyColumn(
+        modifier = modifier,
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
         itemsIndexed(items) { index, item ->
-            val text = when (item.kind) {
-                Kind.SIMPLE -> item.text ?: ""
-                Kind.SUBLIST -> "${item.text ?: ""} >"
-                Kind.TOGGLE -> "${item.text ?: ""} [${if (item.isOn) "ON" else "OFF"}]"
-                Kind.CONTACT -> "${item.name ?: ""}: ${item.phoneNumber ?: ""}"
-                else -> ""
+            val isSelected = index == selectedIndex
+            val containerColor = if (isSelected) {
+                MaterialTheme.colorScheme.primaryContainer
+            } else {
+                MaterialTheme.colorScheme.surface
             }
-            Text(text = text, color = if (index == selectedIndex) Color.Red else Color.Unspecified)
+            val contentColor = if (isSelected) {
+                MaterialTheme.colorScheme.onPrimaryContainer
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            }
+
+            ElevatedCard(
+                colors = CardDefaults.elevatedCardColors(containerColor = containerColor)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = when (item.kind) {
+                            Kind.CONTACT -> "CONTACT"
+                            Kind.TOGGLE -> "SWITCH"
+                            Kind.SUBLIST -> "MENU"
+                            else -> "APP"
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = contentColor.copy(alpha = 0.5f)
+                    )
+                    Spacer(modifier = Modifier.width(16.dp))
+                    Column {
+                        Text(
+                            text = item.text ?: item.name ?: "",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = contentColor
+                        )
+                        if (item.kind == Kind.CONTACT && !item.phoneNumber.isNullOrEmpty()) {
+                            Text(
+                                text = item.phoneNumber,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = contentColor.copy(alpha = 0.7f)
+                            )
+                        }
+                        if (item.kind == Kind.TOGGLE) {
+                            Text(
+                                text = if (item.isOn) "ON" else "OFF",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = contentColor.copy(alpha = 0.7f)
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 }
