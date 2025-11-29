@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "992298132814",
+    "firebase_url": "https://kkek-041405-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "kkek-041405",
+    "storage_bucket": "kkek-041405.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:992298132814:android:9a28db23beb9385a5a6a1f",
+        "android_client_info": {
+          "package_name": "com.kkek.assistant"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAVDxGk3oq-A3cXw3Oz1l1dkts7tBhCi_Y"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

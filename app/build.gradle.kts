@@ -2,8 +2,10 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
-    kotlin("plugin.serialization") version "1.9.0"
+    alias(libs.plugins.hilt)
+    alias(libs.plugins.kotlin.serialization)
     id("com.google.gms.google-services")
+    kotlin("kapt")
 }
 
 android {
@@ -36,6 +38,7 @@ android {
     kotlinOptions {
         jvmTarget = "11"
     }
+
     buildFeatures {
         compose = true
     }
@@ -58,6 +61,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.compose.material3)
 
+    // Hilt
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
 
     // Coroutines Android
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3")
@@ -83,7 +89,7 @@ dependencies {
     implementation("dev.convex:android-convexmobile:0.4.1@aar") {
         isTransitive = true
     }
-    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
+    implementation(libs.kotlinx.serialization.json)
 
     //spotify libs
     implementation("com.spotify.android:auth:1.2.5")

@@ -19,8 +19,6 @@
         <uses-permission android:name="android.permission.FOREGROUND_SERVICE_PHONE_CALL" />
         <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
         <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
-        <uses-permission android:name="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE" 
-            tools:ignore="ProtectedPermissions" />
 
         <!-- Other Permissions -->
         <uses-permission android:name="android.permission.WAKE_LOCK" />
@@ -38,6 +36,7 @@
         <package android:name="com.spotify.music" />
     </queries>
         <application
+            android:name=".AssistantApplication"
             android:allowBackup="true"
             android:dataExtractionRules="@xml/data_extraction_rules"
             android.fullBackupContent="@xml/backup_rules"
@@ -111,6 +110,21 @@
                     <action android:name="android.service.notification.NotificationListenerService" />
                 </intent-filter>
             </service>
+
+            <service
+                android:name=".System.touch.TouchService"
+                android:label="@string/app_name"
+                android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+                android:exported="false">
+                <intent-filter>
+                    <action android:name="android.accessibilityservice.AccessibilityService" />
+                </intent-filter>
+                <meta-data
+                    android:name="android.accessibilityservice"
+                    android:resource="@xml/accessibility_service_config" />
+            </service>
+
+            <service android:name=".service.BubbleService" />
 
         </application>
 

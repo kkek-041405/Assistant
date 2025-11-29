@@ -3,26 +3,24 @@ package com.kkek.assistant.System
 import android.content.Context
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import dagger.hilt.android.qualifiers.ApplicationContext
 import java.util.Locale
+import javax.inject.Inject
+import javax.inject.Singleton
 
-/**
- * TTSHelper in tts subpackage: wraps Android TextToSpeech and exposes a simple speak() and shutdown() API.
- */
-class TTSHelper(private val appContext: Context) : TextToSpeech.OnInitListener {
+@Singleton
+class TTSHelper @Inject constructor(@ApplicationContext context: Context) : TextToSpeech.OnInitListener {
     private val TAG = "TTSHelper"
     private var tts: TextToSpeech? = null
     private var ready = false
-    // queue texts requested before TTS becomes ready
     private val pending = ArrayList<String>()
 
     init {
-        // initialize with application context; this should survive Activity config changes
-        tts = TextToSpeech(appContext, this)
+        tts = TextToSpeech(context, this)
     }
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            // Try device default locale first, then fall back to US English
             val defaultLocale = Locale.getDefault()
             var result = tts?.setLanguage(defaultLocale)
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -34,14 +32,12 @@ class TTSHelper(private val appContext: Context) : TextToSpeech.OnInitListener {
                 Log.e(TAG, "TTS language not supported (default and fallback)")
             } else {
                 Log.d(TAG, "TTS ready with locale: ${tts?.language}")
-            }
-
-            // speak any queued requests
-            if (ready && pending.isNotEmpty()) {
-                for (p in pending) {
-                    tts?.speak(p, TextToSpeech.QUEUE_ADD, null, "tts_pending")
+                if (pending.isNotEmpty()) {
+                    for (p in pending) {
+                        tts?.speak(p, TextToSpeech.QUEUE_ADD, null, "tts_pending")
+                    }
+                    pending.clear()
                 }
-                pending.clear()
             }
         } else {
             Log.e(TAG, "TTS initialization failed")
@@ -49,16 +45,7 @@ class TTSHelper(private val appContext: Context) : TextToSpeech.OnInitListener {
     }
 
     fun speak(text: String) {
-        // If the internal TTS has been cleared for some reason, recreate it and queue
-        if (tts == null) {
-            Log.w(TAG, "TTS instance null, re-initializing and queuing speak request")
-            tts = TextToSpeech(appContext, this)
-            pending.add(text)
-            return
-        }
-
         if (!ready) {
-            // Queue early speak requests so they are not lost
             Log.w(TAG, "TTS not ready yet, queuing speak request")
             pending.add(text)
             return

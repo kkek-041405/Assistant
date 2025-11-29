@@ -16,17 +16,25 @@ import java.util.UUID
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
-class BluetoothHelper(private val context: Context) {
+object BluetoothHelper {
 
-    private val bluetoothManager: BluetoothManager? = context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager
-    private val bluetoothAdapter: BluetoothAdapter? = bluetoothManager?.adapter
+    private var context: Context? = null
+    private val bluetoothManager: BluetoothManager? by lazy { context?.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager }
+    private val bluetoothAdapter: BluetoothAdapter? by lazy { bluetoothManager?.adapter }
     private var bluetoothSocket: BluetoothSocket? = null
 
     // Standard SerialPortService ID
     private val myUUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
+    fun init(context: Context) {
+        if (this.context == null) {
+            this.context = context.applicationContext
+        }
+    }
+
     private fun hasPermission(permission: String): Boolean {
-        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
+        val currentContext = context ?: return false
+        return ContextCompat.checkSelfPermission(currentContext, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     fun enableBluetooth() {
@@ -34,7 +42,7 @@ class BluetoothHelper(private val context: Context) {
             return
         }
         if (bluetoothAdapter?.isEnabled == false) {
-            bluetoothAdapter.enable()
+            bluetoothAdapter?.enable()
         }
     }
 
@@ -43,7 +51,7 @@ class BluetoothHelper(private val context: Context) {
             return
         }
         if (bluetoothAdapter?.isEnabled == true) {
-            bluetoothAdapter.disable()
+            bluetoothAdapter?.disable()
         }
     }
 
@@ -86,12 +94,12 @@ class BluetoothHelper(private val context: Context) {
 
         try {
             @Suppress("MissingPermission") // Already checked above
-            val device: BluetoothDevice? = bluetoothAdapter.getRemoteDevice(deviceData.address)
+            val device: BluetoothDevice? = bluetoothAdapter?.getRemoteDevice(deviceData.address)
             if (device != null) {
                 @Suppress("MissingPermission") // Already checked above
                 bluetoothSocket = device.createRfcommSocketToServiceRecord(myUUID)
                 @Suppress("MissingPermission") // Already checked above
-                bluetoothAdapter.cancelDiscovery()
+                bluetoothAdapter?.cancelDiscovery()
                 Log.d("BluetoothHelper", "Connecting to device...")
                 @Suppress("MissingPermission") // Already checked above
                 bluetoothSocket?.connect()
@@ -111,6 +119,7 @@ class BluetoothHelper(private val context: Context) {
     }
 
     suspend fun disconnect() {
+        val currentContext = context ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasPermission(Manifest.permission.BLUETOOTH_CONNECT)) {
             return
         }
@@ -152,7 +161,7 @@ class BluetoothHelper(private val context: Context) {
 
             Log.d("BluetoothHelper", "Attempting to close profile proxies for A2DP and HEADSET")
             profilesToClose.forEach { profileId ->
-                if (bluetoothAdapter?.getProfileProxy(context, profileListener, profileId) == false) {
+                if (bluetoothAdapter?.getProfileProxy(currentContext, profileListener, profileId) == false) {
                     if (profileCounter.decrementAndGet() == 0) {
                         continuation.resume(Unit)
                     }

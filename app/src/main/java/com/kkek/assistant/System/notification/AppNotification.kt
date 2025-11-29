@@ -1,8 +1,7 @@
 package com.kkek.assistant.System.notification
 
-data class Notification(
-    val id: String,
-    val packageName: String,
+data class AppNotification(
+    val appName: String,
     val title: String,
     val text: String,
     val timestamp: Long
