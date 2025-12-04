@@ -13,7 +13,7 @@ class NotificationTool @Inject constructor(private val repository: AssistantRepo
     override val description = "Reads and interacts with notifications."
 
     override val parameters = listOf(
-        ToolParameter("action", "String", "The action to perform (e.g., 'summarize').", isRequired = true)
+        ToolParameter("action", "String", "The action to perform (e.g., 'summarize', 'read_latest_otp').", isRequired = true)
     )
 
     override suspend fun execute(context: Context, params: Map<String, Any>, scope: CoroutineScope): ToolResult {
@@ -26,6 +26,18 @@ class NotificationTool @Inject constructor(private val repository: AssistantRepo
                     "You have no new notifications."
                 }
                 ToolResult.Success(mapOf("speechOutput" to summary))
+            }
+            "read_latest_otp" -> {
+                val latestOtpNotification = repository.notifications.value
+                    .filter { it.otpCode != null }
+                    .maxByOrNull { it.timestamp }
+
+                val otpMessage = if (latestOtpNotification != null) {
+                    "Your latest OTP is ${latestOtpNotification.otpCode}"
+                } else {
+                    "No recent OTP found."
+                }
+                ToolResult.Success(mapOf("speechOutput" to otpMessage))
             }
             else -> ToolResult.Failure("Invalid or missing action for NotificationTool: $action")
         }

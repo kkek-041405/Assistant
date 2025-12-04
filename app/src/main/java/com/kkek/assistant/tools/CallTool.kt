@@ -3,6 +3,7 @@ package com.kkek.assistant.tools
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import com.kkek.assistant.data.model.Contact
 import com.kkek.assistant.data.AssistantRepository
 import com.kkek.assistant.domain.model.AiTool
 import com.kkek.assistant.domain.model.ToolParameter
@@ -27,7 +28,7 @@ class CallTool @Inject constructor(private val repository: AssistantRepository) 
             ?: return ToolResult.Failure("Contact not found: $contactName")
 
         val intent = Intent(Intent.ACTION_CALL).apply {
-            data = Uri.parse("tel:${contact.phone}")
+            data = Uri.parse("tel:${contact.phoneNumber}")
             flags = Intent.FLAG_ACTIVITY_NEW_TASK
         }
 

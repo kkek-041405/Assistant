@@ -23,14 +23,20 @@ class NotificationListener : NotificationListenerService() {
             val text = notification.extras.getString("android.text", "")
             val appName = getAppName(packageName)
 
-            if (!title.isNullOrBlank() && !text.isNullOrBlank()) {
+            if (!title.isNullOrBlank() || !text.isNullOrBlank()) { // Changed to OR to catch notifications with only one field
+                // Call the parser to check for an OTP
+                val otpCode = OtpParser.findOtpCode(title, text)
+
                 val appNotification = AppNotification(
                     appName = appName,
                     title = title,
                     text = text,
-                    timestamp = System.currentTimeMillis()
+                    timestamp = System.currentTimeMillis(),
+                    otpCode = otpCode // Set the extracted OTP code here
                 )
-                 repository.handleNewNotification(appNotification)
+
+                // Now your repository can decide what to do if otpCode is not null
+                repository.handleNewNotification(appNotification)
             }
         }
     }

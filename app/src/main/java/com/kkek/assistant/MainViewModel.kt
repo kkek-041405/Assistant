@@ -1,12 +1,10 @@
 package com.kkek.assistant
 
 import android.app.Application
-import android.app.NotificationManager
 import android.app.role.RoleManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.media.AudioManager
 import android.os.Build
 import android.provider.Settings
@@ -19,12 +17,14 @@ import androidx.lifecycle.viewModelScope
 import com.kkek.assistant.core.Command
 import com.kkek.assistant.core.CommandQueue
 import com.kkek.assistant.data.AssistantRepository
+import com.kkek.assistant.data.repository.ContactRepository
 import com.kkek.assistant.domain.model.ToolResult
 import com.kkek.assistant.domain.store.ToolStore
 import com.kkek.assistant.domain.usecase.ToolExecutor
 import com.kkek.assistant.model.ListItem
 import com.kkek.assistant.model.ToolAction
 import com.kkek.assistant.music.SpotifyHelper
+import com.kkek.assistant.repository.FirebaseRepository
 import com.kkek.assistant.service.BubbleService
 import com.kkek.assistant.System.notification.NotificationListener
 import com.kkek.assistant.states.AppsState
@@ -43,6 +43,7 @@ import javax.inject.Inject
 @HiltViewModel
 class MainViewModel @Inject constructor(
     private val repository: AssistantRepository,
+    private val contactRepository: ContactRepository,
     private val toolStore: ToolStore,
     private val spotifyHelper: SpotifyHelper,
     private val application: Application
@@ -85,18 +86,53 @@ class MainViewModel @Inject constructor(
         initialValue = emptyList()
     )
 
+    val contacts = contactRepository.getContacts().stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyList()
+    )
+
+    var isShowingContacts by mutableStateOf(false)
+        private set
+
     init {
         updateDialerRoleState()
         if (!isDefaultDialer) showDialerPrompt = true
         repository.updateBatteryPercentage()
         checkNotificationListenerPermission()
-        listenForCommands()
+
+        // 1. Upload capabilities to Firebase so Next.js knows what to show
+        val allTools = toolStore.getAllTools()
+        FirebaseRepository.uploadAvailableCommands(allTools)
+
+        // 2. Start listening for incoming commands
+        FirebaseRepository.listenForCommands { toolId, params ->
+            viewModelScope.launch {
+                val action = ToolAction(toolId, params)
+                executeAiTool(action)
+            }
+        }
+        observeContactUpdates()
     }
 
     private fun listenForCommands() {
         CommandQueue.commands.onEach { command ->
             when (command) {
                 is Command.ExecutePrimaryAction -> onNextLongPress()
+            }
+        }.launchIn(viewModelScope)
+    }
+
+    private fun observeContactUpdates() {
+        contacts.onEach { newContacts ->
+            if (isShowingContacts) {
+                val oldSelectedIndex = selectedIndex
+                currentList = ContactsState.build(newContacts)
+                if (oldSelectedIndex < newContacts.size) {
+                    selectedIndex = oldSelectedIndex
+                } else {
+                    selectedIndex = 0
+                }
             }
         }.launchIn(viewModelScope)
     }
@@ -160,24 +196,28 @@ class MainViewModel @Inject constructor(
     }
 
     private fun showDefaultList() {
+        isShowingContacts = false
         currentList = DefaultState.build()
         selectedIndex = 0
         setUserMessage("")
     }
 
     private fun showInCallList() {
+        isShowingContacts = false
         currentList = InCallState.build()
         selectedIndex = 0
         setUserMessage("In-call actions")
     }
 
     private fun showSpotifyList() {
+        isShowingContacts = false
         currentList = SpotifyState.build(spotifyHelper.isConnected.value)
         selectedIndex = 0
         setUserMessage("Opened Spotify controls")
     }
 
     private fun showAppsList() {
+        isShowingContacts = false
         viewModelScope.launch {
             currentList = AppsState.build(application)
             selectedIndex = 0
@@ -186,11 +226,12 @@ class MainViewModel @Inject constructor(
     }
 
     private fun showContactsList() {
+        isShowingContacts = true
+        currentList = ContactsState.build(contacts.value)
+        selectedIndex = 0
+        setUserMessage("Opened contacts")
         viewModelScope.launch {
-            setUserMessage("Fetching contacts...")
-            currentList = ContactsState.build(repository.getContacts())
-            selectedIndex = 0
-            setUserMessage("Opened contacts")
+            refreshContacts()
         }
     }
 
@@ -208,6 +249,10 @@ class MainViewModel @Inject constructor(
         if (currentList.isNotEmpty()) {
             selectedIndex = (selectedIndex - 1 + currentList.size) % currentList.size
         }
+    }
+
+    private suspend fun refreshContacts() {
+        contactRepository.refreshContacts()
     }
 
     // --- Permissions and System State ---

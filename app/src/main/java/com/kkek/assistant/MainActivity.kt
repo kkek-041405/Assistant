@@ -45,7 +45,6 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.kkek.assistant.System.VolumeCommandListener
 import com.kkek.assistant.System.VolumeKeyListener
-import com.kkek.assistant.System.notification.AppNotification
 import com.kkek.assistant.model.ListItem
 import com.kkek.assistant.ui.theme.AssistantTheme
 import dagger.hilt.android.AndroidEntryPoint
@@ -93,7 +92,7 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         @OptIn(ExperimentalMaterial3Api::class)
         setContent {
             AssistantTheme {
-                val notifications by viewModel.notifications.collectAsState()
+
 
                 val permissionRequest = viewModel.permissionRequest
                 LaunchedEffect(permissionRequest) {
@@ -144,8 +143,6 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
                     snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
                 ) { innerPadding ->
                     Column(modifier = Modifier.padding(innerPadding).fillMaxSize()) {
-                        NotificationList(notifications = notifications)
-
                         ItemList(
                             items = viewModel.currentList,
                             selectedIndex = viewModel.selectedIndex,
@@ -157,29 +154,7 @@ class MainActivity : ComponentActivity(), VolumeCommandListener {
         }
     }
 
-    @Composable
-    fun NotificationList(notifications: List<AppNotification>) {
-        Column {
-            Text("Notifications", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(16.dp))
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                items(notifications) { notification ->
-                    ElevatedCard(
-                        modifier = Modifier
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .fillMaxWidth(),
-                    ) {
-                        Column(modifier = Modifier.padding(16.dp)) {
-                            Text(text = notification.appName, style = MaterialTheme.typography.titleMedium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = notification.title, style = MaterialTheme.typography.bodyMedium)
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(text = notification.text, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        }
-    }
+
 
     @Composable
     fun ItemList(items: List<ListItem>, selectedIndex: Int, modifier: Modifier = Modifier) {

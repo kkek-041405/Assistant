@@ -6,6 +6,7 @@ import android.content.Intent
 import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
+import android.util.Log
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -13,15 +14,20 @@ import android.view.View
 import android.view.WindowManager
 import android.widget.ImageView
 import com.kkek.assistant.R
-import com.kkek.assistant.core.Command
-import com.kkek.assistant.core.CommandQueue
+import com.kkek.assistant.data.AssistantRepository
+import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+@AndroidEntryPoint
 class BubbleService : Service() {
     private lateinit var windowManager: WindowManager
     private lateinit var bubbleView: View
     private lateinit var params: WindowManager.LayoutParams
+
+    @Inject
+    lateinit var repository: AssistantRepository
 
     override fun onBind(intent: Intent?): IBinder? {
         return null
@@ -41,7 +47,7 @@ class BubbleService : Service() {
             } else {
                 WindowManager.LayoutParams.TYPE_PHONE
             },
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
             PixelFormat.TRANSLUCENT
         )
 
@@ -79,10 +85,12 @@ class BubbleService : Service() {
                         val yMove = abs(event.rawY - initialTouchY)
 
                         if (timeSinceDown < longPressDuration && xMove < clickMoveThreshold && yMove < clickMoveThreshold) {
-                            // Click
-                            CommandQueue.sendCommand(Command.ExecutePrimaryAction)
+                            // Click: Request screen capture
+                            Log.d(TAG, "Bubble clicked. Requesting screen capture.")
+                            repository.requestScreenCapture()
                         } else if (timeSinceDown >= longPressDuration && xMove < clickMoveThreshold && yMove < clickMoveThreshold) {
-                            // Long Press
+                            // Long Press: Stop the service
+                            Log.d(TAG, "Bubble long-pressed. Stopping service.")
                             stopSelf()
                         }
                         return true
@@ -102,5 +110,9 @@ class BubbleService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         windowManager.removeView(bubbleView)
+    }
+
+    companion object {
+        private const val TAG = "BubbleService"
     }
 }
